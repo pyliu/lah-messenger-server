@@ -1,5 +1,4 @@
 const isDev = process.env.NODE_ENV !== 'production'
-
 try {
   require('dotenv').config()
 
@@ -14,10 +13,11 @@ try {
     fs.mkdirSync(dbDir)
   }
 
+  const servicePort = process.env.WEBSOCKET_PORT || 8081
   // initialize WS server
   const WebSocket = require('ws')
   const wss = new WebSocket.Server({
-    port: process.env.WEBSOCKET_PORT,
+    port: servicePort,
     perMessageDeflate: {
       zlibDeflateOptions: {
         // See zlib defaults.
@@ -95,7 +95,7 @@ try {
     watcher.close()
   })
 
-  console.log(`ws伺服器已啟動 (${process.env.WEBSOCKET_PORT})`)
+  console.log(`ws伺服器已啟動 (${servicePort})`)
 } catch (e) {
   console.error('ws伺服器啟動失敗', e)
 } finally {
