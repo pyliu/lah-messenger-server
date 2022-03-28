@@ -35,10 +35,10 @@ class MessageWatcher {
   }
 
   watchHandler (evt, name) {
-    // evt => 'update' / 'remove', name => 'D:\tmp\code\lah-nuxtjs\ws\db\0541.db'
-    // e.g. 0541.db
+    // evt => 'update' / 'remove', name => 'D:\CODE\lah-messenger-server\db\HAXXXXXXXX.db'
+    // e.g. HA20023698.db
     // const basename = path.basename(name)
-    // e.g. 0541
+    // e.g. HA20023698
     const channel = path.basename(name, '.db')
     if (evt === 'update') {
       // on create or modify
@@ -61,27 +61,21 @@ class MessageWatcher {
             remove: row.title // remove PM required
           })
 
-          // find user own channel ws
-          const ownWs = wsClients.find((ws, idx, arr) => {
-            if (ws.user) {
-              return ws.user.userid === channel
-            }
-            return false
-          })
-          ownWs && ownWs.send(packedMessage)
+          // find client ws to send message
+          wsClients.filter(ws => ws.user?.userid === channel).forEach(ws => ws.send(packedMessage))
 
           // search channel participants and delivery message to them
-          const channelDb = new ChannelDB()
-          const participants = channelDb.getAllParticipantsByChannel(channel)
-          participants.forEach((participant, idx, arr) => {
-            const found = wsClients.find((ws, idx, arr) => {
-              if (ws.user) {
-                return ws.user.userid === participant.user_id
-              }
-              return false
-            })
-            found && found.send(packedMessage)
-          })
+          // const channelDb = new ChannelDB()
+          // const participants = channelDb.getAllParticipantsByChannel(channel)
+          // participants.forEach((participant, idx, arr) => {
+          //   const found = wsClients.find((ws, idx, arr) => {
+          //     if (ws.user) {
+          //       return ws.user.userid === participant.user_id
+          //     }
+          //     return false
+          //   })
+          //   found && found.send(packedMessage)
+          // })
         }
       } else {
         isDev && console.log(`無法取得 ${channel} 最新訊息`)
