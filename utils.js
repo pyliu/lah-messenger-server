@@ -16,6 +16,11 @@ const DOMPurify = require('dompurify')
 const WebSocket = require('ws')
 const MessageDB = require('./message-db.js')
 
+marked.setOptions({
+  breaks: true,
+  sanitizer: DOMPurify.sanitize
+})
+
 require('dotenv').config()
 
 const trim = (x) => { return typeof x === 'string' ? x.replace(/^[\s\r\n]+|[\s\r\n]+$/gm, '') : '' }
@@ -88,7 +93,7 @@ const broadcast = (clients, rowORtext, channel = 'lds') => {
           opts.sender = rowORtext.sender
           opts.date = rowORtext.create_datetime.split(' ')[0]
           opts.time = rowORtext.create_datetime.split(' ')[1]
-          opts.message = marked.parse(rowORtext.content, { sanitizer: DOMPurify.sanitize })
+          opts.message = marked.parseInline(marked.parse(rowORtext.content))
           opts.from = rowORtext.$from_ip
           opts.channel = channel
         }
