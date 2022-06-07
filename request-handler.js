@@ -67,6 +67,8 @@ class RequestHandler {
         return this.executeChannelUnreadCommand(ws, json)
       case 'remove_message':
         return this.executeRemoveMessageCommand(ws, json)
+      case 'edit_message':
+        return this.executeEditMessageCommand(ws, json)
       case 'remove_channel':
         return this.executeRemoveChannelCommand(ws, json)
       case 'update_user':
@@ -420,6 +422,59 @@ class RequestHandler {
       const messageDB = new MessageDB(senderChannel)
       !messageDB.setMessageRead(senderMessageId, senderMessageFlag) && console.warn(`設定 ${senderChannel} 頻道訊息 #${senderMessageId} 已讀失敗`)
     }
+
+    return true
+  }
+
+  executeEditMessageCommand (ws, json) {
+    // json.command === 'edit_message'
+    /** expected json
+      {
+        command: 'edit_message',
+        channel: channel_id,
+        id: id_to_be_updated,
+        sender: sender_id,
+        payload: { ... }, // announcement / message json
+        // in private channel, it needs to edit the pm as well; parsed json expect: { to: 'HAXXXX', id: xxxx }
+        cascade: { to: 'HAXXXX', id: xxxx }
+      }
+     */
+    const senderChannel = String(json.sender)
+    const targetChannel = String(json.channel)
+    const targetId = parseInt(json.id) || 0
+    const sender = json.sender
+    const messageDB = new MessageDB(targetChannel)
+    const result = messageDB.updateMessage({
+      id: parseInt(json.id) || 0,
+      title: json.payload.title || '',
+      content: json.payload.message || json.payload.content,
+      priority: json.payload.priority || 3,
+      sender: json.sender,
+      from_ip: json.payload.from_ip || '',
+      flag: json.payload.flag || 0
+    })
+    // send ack to the message sender ...
+    const found = [...ws.wss.clients].find((ws) => {
+      return ws.user?.userid === sender
+    })
+
+    // console.log('準備送出已讀ACK(-9)，接收者', found?.user)
+
+    found && found.send(utils.packMessage(
+      // message payload
+      {
+        command: 'edit_message',
+        payload: json,
+        success: result !== false,
+        message: `於 ${senderChannel} 頻道更新 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
+      },
+      // outter message attrs
+      {
+        type: 'ack',
+        id: '-10', // temporary id for check_read
+        channel: 'system'
+      }
+    ))
 
     return true
   }

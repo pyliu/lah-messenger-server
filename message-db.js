@@ -118,6 +118,43 @@ class MessageDB {
     }
   }
 
+  updateMessage (params, retry = 0) {
+    try {
+      const prepared = this.db.prepare(`
+        UPDATE message SET title = $title, content = $content, priority = $priority, sender = $sender, from_ip = $from_ip
+        WHERE id = $id
+      `)
+      const update = this.db.transaction((obj) => {
+        return prepared.run(obj)
+      })
+      const info = update.deferred({
+        ...{
+          id: '',
+          title: '',
+          content: '',
+          priority: 3,
+          create_datetime: this.timestamp(),
+          expire_datetime: '',
+          sender: process.env.WEBSOCKET_ROBOT_NAME,
+          from_ip: '',
+          flag: 0
+        },
+        ...params
+      })
+      // info: { changes: 1, lastInsertRowid: xx }
+      isDev && console.log(`更新 ${this.channel} 訊息成功`, info)
+      return info
+    } catch (e) {
+      if (retry < 3) {
+        const delay = parseInt(Math.random() * 1000)
+        isDev && console.warn(`更新訊息失敗，${delay} ms 後重試 (${retry + 1})`)
+        setTimeout(this.updateMessage.bind(this, params, retry + 1), delay)
+      } else {
+        console.error(`更新 ${this.channel} 訊息失敗`, e)
+      }
+    }
+  }
+
   removeMesaage (id) {
     try {
       const prepared = this.db.prepare('DELETE FROM message WHERE id = $id')
