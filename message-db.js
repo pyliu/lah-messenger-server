@@ -121,7 +121,7 @@ class MessageDB {
   updateMessage (params, retry = 0) {
     try {
       const prepared = this.db.prepare(`
-        UPDATE message SET title = $title, content = $content, priority = $priority, sender = $sender, from_ip = $from_ip
+        UPDATE message SET title = $title, content = $content, priority = $priority
         WHERE id = $id
       `)
       const update = this.db.transaction((obj) => {
@@ -132,12 +132,12 @@ class MessageDB {
           id: '',
           title: '',
           content: '',
-          priority: 3,
-          create_datetime: this.timestamp(),
-          expire_datetime: '',
-          sender: process.env.WEBSOCKET_ROBOT_NAME,
-          from_ip: '',
-          flag: 0
+          priority: 3
+          // create_datetime: this.timestamp(),
+          // expire_datetime: '',
+          // sender: process.env.WEBSOCKET_ROBOT_NAME,
+          // from_ip: '',
+          // flag: 0
         },
         ...params
       })

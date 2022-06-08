@@ -446,12 +446,12 @@ class RequestHandler {
     const messageDB = new MessageDB(targetChannel)
     const result = messageDB.updateMessage({
       id: parseInt(json.id) || 0,
-      title: json.payload.title || '',
-      content: json.payload.message || json.payload.content,
-      priority: json.payload.priority || 3,
-      sender: json.sender,
-      from_ip: json.payload.from_ip || '',
-      flag: json.payload.flag || 0
+      title: json.payload.title || '⚠ 標題遺失',
+      content: json.payload.message || json.payload.content || '⚠ 內容遺失',
+      priority: json.payload.priority || 3
+      // sender: json.sender,
+      // from_ip: json.payload.from_ip || '',
+      // flag: json.payload.flag || 0
     })
     // send ack to the message sender ...
     const found = [...ws.wss.clients].find((ws) => {
