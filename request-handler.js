@@ -464,7 +464,7 @@ class RequestHandler {
       // message payload
       {
         command: 'edit_message',
-        payload: json,
+        payload: { ...json, channel: targetChannel },
         success: result !== false,
         message: `於 ${senderChannel} 頻道更新 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
       },
