@@ -99,22 +99,12 @@ class RequestHandler {
     !valid && console.warn('收到參數', args)
     isDev && console.log('WS中的使用者資訊', ws.user)
 
-    ws.send(utils.packMessage(
-      // message payload
-      {
-        command: 'register',
-        payload: ws.user,
-        success: valid,
-        message
-      },
-      // outter message attrs
-      {
-        type: 'ack',
-        id: '-1', // temporary id for register
-        channel: 'system'
-      }
-    ))
-
+    utils.sendAck(ws, {
+      command: 'register',
+      payload: ws.user,
+      success: valid,
+      message
+    }, -1)
     return valid
   }
 
@@ -123,21 +113,12 @@ class RequestHandler {
     const db = new ChannelDB()
     ws.user && db.getChannelByParticipant(ws.user.userid, (row) => {
       isDev && console.log(`找到 ${ws.user.userid} 參與頻道資訊`, row)
-      ws.send(utils.packMessage(
-        // message payload
-        {
-          command: 'mychannel',
-          payload: { action: 'add', ...row },
-          success: true,
-          message: `找到 ${row.id} 頻道`
-        },
-        // outter message attrs
-        {
-          type: 'ack',
-          id: '-2', // temporary id for mychannel
-          channel: 'system'
-        }
-      ))
+      utils.sendAck(ws, {
+        command: 'mychannel',
+        payload: { action: 'add', ...row },
+        success: true,
+        message: `找到 ${row.id} 頻道`
+      }, -2)
     })
     return Boolean(ws.user)
   }
@@ -160,21 +141,12 @@ class RequestHandler {
     })
     toBeRemoved.remove((success) => {
       participants.forEach((participant) => {
-        participant.send(utils.packMessage(
-          // message payload
-          {
-            command: 'remove_channel',
-            payload: json,
-            success,
-            message: success ? `已移除 ${id} / ${json.name} 頻道` : `移除 ${id} / ${json.name} 頻道失敗，請稍後再試`
-          },
-          // outter message attrs
-          {
-            type: 'ack',
-            id: '-3', // temporary id for remove channel
-            channel: 'system'
-          }
-        ))
+        utils.sendAck(participant, {
+          command: 'remove_channel',
+          payload: json,
+          success,
+          message: success ? `已移除 ${id} / ${json.name} 頻道` : `移除 ${id} / ${json.name} 頻道失敗，請稍後再試`
+        }, -3)
       })
     })
   }
@@ -209,23 +181,12 @@ class RequestHandler {
         }
       })
     }
-
-    ws.send(utils.packMessage(
-      // message payload
-      {
-        command: 'previous',
-        payload: json,
-        success: hasMessage,
-        message: hasMessage ? `已完成 ${channel} 歷史訊息讀取` : '已無歷史訊息'
-      },
-      // outter message attrs
-      {
-        type: 'ack',
-        id: '-4', // temporary id for previous
-        channel: 'system'
-      }
-    ))
-
+    utils.sendAck(ws, {
+      command: 'previous',
+      payload: json,
+      success: hasMessage,
+      message: hasMessage ? `已完成 ${channel} 歷史訊息讀取` : '已無歷史訊息'
+    }, -4)
     return true
   }
 
@@ -234,22 +195,12 @@ class RequestHandler {
     const last = parseInt(json.last) || 0
     const channelDB = new MessageDB(channel)
     json.unread = channelDB.getUnreadMessageCount(last)
-    ws.send(utils.packMessage(
-      // message payload
-      {
-        command: 'unread',
-        payload: json,
-        success: true,
-        message: `${channel} 共 ${json.unread} 筆未讀訊息`
-      },
-      // outter message attrs
-      {
-        type: 'ack',
-        id: '-5', // temporary id for unread
-        channel: 'system'
-      }
-    ))
-
+    utils.sendAck(ws, {
+      command: 'unread',
+      payload: json,
+      success: true,
+      message: `${channel} 共 ${json.unread} 筆未讀訊息`
+    }, -5)
     return true
   }
 
@@ -267,21 +218,12 @@ class RequestHandler {
     const result = messageDB.removeMesaage(targetId)
     const allConnectedWs = [...ws.wss.clients]
     allConnectedWs.forEach((thisWs) => {
-      thisWs.send(utils.packMessage(
-        // message payload
-        {
-          command: 'remove_message',
-          payload: json,
-          success: result !== false,
-          message: `${targetChannel} 移除 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
-        },
-        // outter message attrs
-        {
-          type: 'ack',
-          id: '-6', // temporary id for remove_message
-          channel: 'system'
-        }
-      ))
+      utils.sendAck(thisWs, {
+        command: 'remove_message',
+        payload: json,
+        success: result !== false,
+        message: `${targetChannel} 移除 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
+      }, -6)
     })
     return true
   }
@@ -310,23 +252,12 @@ class RequestHandler {
     })
     // prepare ack payload info
     const ackUsers = filteredClients.map(client => client.user)
-
-    ws.send(utils.packMessage(
-      // message payload
-      {
-        command: 'online',
-        payload: { ...json, users: ackUsers },
-        success: ackUsers.length > 0,
-        message: `找到 ${ackUsers.length} 已連線使用者`
-      },
-      // outter message attrs
-      {
-        type: 'ack',
-        id: '-7', // temporary id for online
-        channel: 'system'
-      }
-    ))
-
+    utils.sendAck(ws, {
+      command: 'online',
+      payload: { ...json, users: ackUsers },
+      success: ackUsers.length > 0,
+      message: `找到 ${ackUsers.length} 已連線使用者`
+    }, -7)
     return true
   }
 
@@ -354,23 +285,14 @@ class RequestHandler {
     })
 
     // console.log('準備送出已讀ACK(-8)，接收者', found?.user)
+    utils.sendAck(found, {
+      command: 'set_read',
+      payload: json,
+      success: result !== false,
+      cascade: json.cascade,
+      message: `於 ${targetChannel} 頻道設定 #${targetId} 訊息已讀${result !== false ? '成功' : '失敗'}`
+    }, -8)
 
-    found && found.send(utils.packMessage(
-      // message payload
-      {
-        command: 'set_read',
-        payload: json,
-        success: result !== false,
-        cascade: json.cascade,
-        message: `於 ${targetChannel} 頻道設定 #${targetId} 訊息已讀${result !== false ? '成功' : '失敗'}`
-      },
-      // outter message attrs
-      {
-        type: 'ack',
-        id: '-8', // temporary id for set_read
-        channel: 'system'
-      }
-    ))
     return true
   }
 
@@ -400,22 +322,12 @@ class RequestHandler {
     })
 
     // console.log('準備送出已讀ACK(-9)，接收者', found?.user)
-
-    found && found.send(utils.packMessage(
-      // message payload
-      {
-        command: 'check_read',
-        payload: json,
-        success: result !== false,
-        message: `於 ${senderChannel} 頻道設定 #${senderMessageId} 訊息已讀${result !== false ? '成功' : '失敗'}`
-      },
-      // outter message attrs
-      {
-        type: 'ack',
-        id: '-9', // temporary id for check_read
-        channel: 'system'
-      }
-    ))
+    utils.sendAck(found, {
+      command: 'check_read',
+      payload: json,
+      success: result !== false,
+      message: `於 ${senderChannel} 頻道設定 #${senderMessageId} 訊息已讀${result !== false ? '成功' : '失敗'}`
+    }, -9)
 
     if (result !== false) {
       // set sender channel message read
@@ -459,22 +371,13 @@ class RequestHandler {
     })
 
     // console.log('準備送出已讀ACK(-10)，接收者', found?.user)
-
-    found && found.send(utils.packMessage(
-      // message payload
-      {
-        command: 'edit_message',
-        payload: json,
-        success: result !== false,
-        message: `於 ${senderChannel} 頻道更新 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
-      },
-      // outter message attrs
-      {
-        type: 'ack',
-        id: '-10', // temporary id for check_read
-        channel: 'system'
-      }
-    ))
+    utils.sendAck(found, {
+      command: 'edit_message',
+      payload: json,
+      success: result !== false,
+      message: `於 ${senderChannel} 頻道更新 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
+      
+    }, -10)
 
     return true
   }
@@ -554,26 +457,17 @@ class RequestHandler {
     if (info.changes === 1 && !json.channel?.startsWith('announcement') && !['chat', 'lds', 'inf', 'reg', 'val', 'adm', 'acc', 'hr', 'sur', 'supervisor'].includes(json.channel)) {
       // successful inserted message to channel
       // const message = utils.getLatestMessageByChannel(json.channel)
-      ws.send(utils.packMessage(
-        // message payload
-        {
-          command: 'private_message',
-          payload: {
-            ...json,
-            insertedId: info.lastInsertRowid,
-            flag: 1,
-            remove: { to: json.channel, id: info.lastInsertRowid }
-          },
-          success: true,
-          message: `已新增訊息到 ${json.channel} 頻道，該訊息 ID 為 ${info.lastInsertRowid}`
+      utils.sendAck(ws, {
+        command: 'private_message',
+        payload: {
+          ...json,
+          insertedId: info.lastInsertRowid,
+          flag: 1,
+          remove: { to: json.channel, id: info.lastInsertRowid }
         },
-        // outter message attrs
-        {
-          type: 'ack',
-          id: '-99', // temporary id for online
-          channel: 'system'
-        }
-      ))
+        success: true,
+        message: `已新增訊息到 ${json.channel} 頻道，該訊息 ID 為 ${info.lastInsertRowid}`
+      }, -99)
     }
     return true
   }

@@ -133,6 +133,34 @@ const sleep = function (ms = 0) {
   return new Promise(r => setTimeout(r, ms))
 }
 
+const sendAck = function (ws, commandPayload, ackInt = -99) {
+  // ws.send(utils.packMessage(
+  //   // message payload
+  //   {
+  //     command: 'register',
+  //     payload: ws.user,
+  //     success: valid,
+  //     message
+  //   },
+  //   // outter message attrs
+  //   {
+  //     type: 'ack',
+  //     id: '-1', // temporary id for register
+  //     channel: 'system'
+  //   }
+  // ))
+  ws?.send(packMessage(
+    // message payload
+    commandPayload,
+    // outter message attrs
+    {
+      type: 'ack',
+      id: String(ackInt), // temporary id for register
+      channel: 'system'
+    }
+  ))
+}
+
 module.exports.timestamp = timestamp
 module.exports.packMessage = packMessage
 module.exports.broadcast = broadcast
@@ -142,3 +170,4 @@ module.exports.trim = trim
 module.exports.sleep = sleep
 module.exports.isEmpty = isEmpty
 module.exports.ip = ip
+module.exports.sendAck = sendAck
