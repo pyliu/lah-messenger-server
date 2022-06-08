@@ -105,6 +105,15 @@ class RequestHandler {
       success: valid,
       message
     }, -1)
+
+    // send user_connected command to all ws clients
+    ws.wss?.clients?.forEach((ws) => {
+      utils.sendCommand(ws, {
+        command: 'user_connected',
+        payload: ws.user
+      })
+    })
+
     return valid
   }
 
@@ -376,7 +385,6 @@ class RequestHandler {
       payload: json,
       success: result !== false,
       message: `於 ${senderChannel} 頻道更新 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
-      
     }, -10)
 
     return true
@@ -397,13 +405,6 @@ class RequestHandler {
         }
       }
      */
-    // prepare system command message
-    const packedMessage = utils.packMessage({
-      command: 'update_user',
-      payload: json.info
-    }, {
-      channel: 'system'
-    })
     // target user id
     const targetUserId = json.id
     // find online user's ws
@@ -411,7 +412,10 @@ class RequestHandler {
       return ws.user?.userid === targetUserId
     })
     if (found) {
-      found.send(packedMessage)
+      utils.sendCommand(found, {
+        command: 'update_user',
+        payload: json.info
+      })
       console.log(`傳送系統訊息至 ${targetUserId}`, packedMessage)
     } else {
       console.warn(`${targetUserId} 沒在線上，無法更新快取登入資訊!`, json)

@@ -66,8 +66,16 @@ try {
     })
 
     ws.on('close', function close () {
-      if (this.user) {
-        console.log(`${this.user.userid} / ${this.user.username} / ${this.user.ip} 連線已中斷`)
+      const disconnected_user = this.user
+      if (disconnected_user) {
+        console.log(`${disconnected_user.userid} / ${disconnected_user.username} / ${disconnected_user.ip} 連線已中斷`)
+        // send user_disconnected command to all ws clients
+        this.wss?.clients?.forEach((ws) => {
+          ws !== this && utils.sendCommand(ws, {
+            command: 'user_disconnected',
+            payload: disconnected_user
+          })
+        })
       } else {
         console.warn('WebSocket內沒有使用者資訊')
       }
