@@ -111,7 +111,7 @@ class RequestHandler {
     ws.wss?.clients?.forEach((ws) => {
       utils.sendCommand(ws, {
         command: 'user_connected',
-        payload: ws.user,
+        payload: connected_user,
         message: `${connected_user.username} 已上線`
       })
     })
