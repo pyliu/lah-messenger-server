@@ -418,7 +418,7 @@ class RequestHandler {
         command: 'update_user',
         payload: json.info
       })
-      console.log(`傳送系統訊息至 ${targetUserId}`, packedMessage)
+      console.log(`傳送系統訊息至 ${targetUserId}`)
     } else {
       console.warn(`${targetUserId} 沒在線上，無法更新快取登入資訊!`, json)
     }
