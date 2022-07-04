@@ -371,7 +371,7 @@ class RequestHandler {
       id: parseInt(json.id) || 0,
       title: json.payload.title || '⚠ 標題遺失',
       content: json.payload.message || json.payload.content || '⚠ 內容遺失',
-      priority: json.payload.priority || 3
+      priority: json.payload.priority === 0 ? 0 : (json.payload.priority || 3)
       // sender: json.sender,
       // from_ip: json.payload.from_ip || '',
       // flag: json.payload.flag || 0
