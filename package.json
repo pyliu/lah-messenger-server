@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "activedirectory": "^0.7.2",
-    "better-sqlite3": "^7.1.5",
+    "better-sqlite3": "^8.5.0",
     "date-fns": "^2.28.0",
     "dompurify": "^2.3.3",
     "dotenv": "^8.2.0",
