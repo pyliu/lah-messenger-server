@@ -27,22 +27,27 @@ const isDev = process.env.NODE_ENV !== 'production'
 
 const trim = (x) => { return typeof x === 'string' ? x.replace(/^[\s\r\n]+|[\s\r\n]+$/gm, '') : '' }
 
-const timestamp = function (date = 'time') {
-  const now = new Date()
-  const full = now.getFullYear() + '-' +
-    ('0' + (now.getMonth() + 1)).slice(-2) + '-' +
-    ('0' + now.getDate()).slice(-2) + ' ' +
-    ('0' + now.getHours()).slice(-2) + ':' +
-    ('0' + now.getMinutes()).slice(-2) + ':' +
-    ('0' + now.getSeconds()).slice(-2)
-  if (date === 'full') {
-    // e.g. 2021-03-14 16:03:00
-    return full
-  } else if (date === 'date') {
-    return full.split(' ')[0]
+const timestamp = function (date = 'time', showMs = false) {
+  const now = new Date();
+
+  const year = now.getFullYear()
+  const month = (now.getMonth() + 1).toString().padStart(2, '0')
+  const day = now.getDate().toString().padStart(2, '0')
+  // Extract hours, minutes, seconds, and milliseconds
+  const hours = now.getHours().toString().padStart(2, '0')
+  const minutes = now.getMinutes().toString().padStart(2, '0')
+  const seconds = now.getSeconds().toString().padStart(2, '0');
+  const milliseconds = now.getMilliseconds().toString().padStart(3, '0');
+
+  // e.g. 2024-10-29 10:40:00.123
+  const formatted = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}${showMs ? `.${milliseconds}` : ''}`
+  if (date === "full") {
+    return formatted;
+  } else if (date === "date") {
+    return formatted.split(" ")[0];
   } else {
-    // e.g. 16:03:00
-    return full.split(' ')[1]
+    // e.g. 16:03:00.123
+    return formatted.split(" ")[1];
   }
 }
 
