@@ -421,7 +421,7 @@ class RequestHandler {
     }
     utils.sendAck(fws, {
       command: 'update_current_channel',
-      payload: fws.user,
+      payload: { ...fws.user, command: 'update_current_channel' },
       success: fws ? true : false,
       message
     }, -11)
