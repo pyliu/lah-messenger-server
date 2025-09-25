@@ -25,6 +25,18 @@ require('dotenv').config()
 
 const isDev = process.env.NODE_ENV !== 'production'
 
+const log = function () {
+  isDev && console.log(...arguments)
+}
+
+const warn = function () {
+  isDev && console.warn(...arguments)
+}
+
+const error = function () {
+  console.error(...arguments)
+}
+
 const trim = (x) => { return typeof x === 'string' ? x.replace(/^[\s\r\n]+|[\s\r\n]+$/gm, '') : '' }
 
 const timestamp = function (date = 'time', showMs = false) {
@@ -144,7 +156,7 @@ const sendCommand = function (ws, cmdPayload) {
     // prepare system command message
     if (ws) {
       ws.send(packMessage(cmdPayload, { channel: 'system' }))
-      isDev && console.log('已傳送系統訊息', cmdPayload)
+      log('已傳送系統訊息', cmdPayload)
     } else {
       console.warn('無法傳送系統訊息!', cmdPayload)
     }
@@ -189,3 +201,6 @@ module.exports.isEmpty = isEmpty
 module.exports.ip = ip
 module.exports.sendAck = sendAck
 module.exports.sendCommand = sendCommand
+module.exports.log = log
+module.exports.warn = warn
+module.exports.error = error

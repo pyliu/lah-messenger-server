@@ -3,8 +3,6 @@ const utils = require(path.join(__dirname, 'utils.js'))
 const MessageDB = require(path.join(__dirname, 'message-db.js'))
 const ChannelDB = require(path.join(__dirname, 'channel-db.js'))
 
-const isDev = process.env.NODE_ENV !== 'production'
-
 class RequestHandler {
   constructor (wss, messageWatcher) {
     // singleton
@@ -21,10 +19,10 @@ class RequestHandler {
   handle (ws, incomingRaw) {
     const incoming = JSON.parse(incomingRaw)
 
-    isDev && console.log('收到客戶端訊息', incoming)
+    utils.log('收到客戶端訊息', incoming)
 
     if (incoming.channel === undefined && incoming.message.channel === undefined) {
-      console.warn('沒有頻道資訊，無法處理此訊息', incoming)
+      utils.warn('沒有頻道資訊，無法處理此訊息', incoming)
       return
     }
 
@@ -40,7 +38,7 @@ class RequestHandler {
           return false
       }
     } else {
-      console.warn(`${incoming} is not a valid json object, skip the request ... `, `RAW: ${incomingRaw}`)
+      utils.warn(`${incoming} is not a valid json object, skip the request ... `, `RAW: ${incomingRaw}`)
     }
     return false
   }
@@ -78,7 +76,7 @@ class RequestHandler {
       case 'update_user':
         return this.executeUpdateUserCommand(ws, json)
       default:
-        console.warn(`不支援的命令 ${cmd}`)
+        utils.warn(`不支援的命令 ${cmd}`)
     }
     return false
   }
@@ -100,9 +98,9 @@ class RequestHandler {
     valid && (ws.user = { ...args, timestamp: +new Date() })
 
     const message = valid ? `遠端客戶端資料 (${ws.user.ip}, ${ws.user.domain}, ${ws.user.userid}, ${ws.user.username}, ${ws.user.dept}) 已儲存於 ws 物件中` : '無法完成 register 命令，因為格式不符'
-    console.log(message)
-    !valid && console.warn('收到參數', args)
-    isDev && console.log('WS中的使用者資訊', ws.user)
+    utils.log(message)
+    !valid && utils.warn('收到參數', args)
+    utils.log('WS中的使用者資訊', ws.user)
 
     utils.sendAck(ws, {
       command: 'register',
@@ -125,10 +123,10 @@ class RequestHandler {
   }
 
   executeQueryJoinChannelCommand (ws) {
-    !ws.user && console.warn('無法完成 mychannel 命令，因為無使用者資訊')
+    !ws.user && utils.warn('無法完成 mychannel 命令，因為無使用者資訊')
     const db = new ChannelDB()
     ws.user && db.getChannelByParticipant(ws.user.userid, (row) => {
-      isDev && console.log(`找到 ${ws.user.userid} 參與頻道資訊`, row)
+      utils.log(`找到 ${ws.user.userid} 參與頻道資訊`, row)
       utils.sendAck(ws, {
         command: 'mychannel',
         payload: { action: 'add', ...row },
@@ -140,7 +138,7 @@ class RequestHandler {
   }
 
   executeCurrentChannelCommand (ws, json) {
-   isDev && console.log('已收到 current_channel 命令訊息', json)
+    utils.log('已收到 current_channel 命令訊息', json)
   }
 
   executeRemoveChannelCommand (ws, json) {
@@ -304,7 +302,7 @@ class RequestHandler {
       return ws.user?.userid === sender
     })
 
-    // console.log('準備送出已讀ACK(-8)，接收者', found?.user)
+    // utils.log('準備送出已讀ACK(-8)，接收者', found?.user)
     utils.sendAck(found, {
       command: 'set_read',
       payload: json,
@@ -341,7 +339,7 @@ class RequestHandler {
       return ws.user?.userid === sender
     })
 
-    // console.log('準備送出已讀ACK(-9)，接收者', found?.user)
+    // utils.log('準備送出已讀ACK(-9)，接收者', found?.user)
     utils.sendAck(found, {
       command: 'check_read',
       payload: json,
@@ -352,7 +350,7 @@ class RequestHandler {
     if (result !== false) {
       // set sender channel message read
       const messageDB = new MessageDB(senderChannel)
-      !messageDB.setMessageRead(senderMessageId, senderMessageFlag) && console.warn(`設定 ${senderChannel} 頻道訊息 #${senderMessageId} 已讀失敗`)
+      !messageDB.setMessageRead(senderMessageId, senderMessageFlag) && utils.warn(`設定 ${senderChannel} 頻道訊息 #${senderMessageId} 已讀失敗`)
     }
 
     return true
@@ -390,7 +388,7 @@ class RequestHandler {
       return ws.user?.userid === sender
     })
 
-    // console.log('準備送出已讀ACK(-10)，接收者', found?.user)
+    // utils.log('準備送出已讀ACK(-10)，接收者', found?.user)
     utils.sendAck(found, {
       command: 'edit_message',
       payload: json,
@@ -409,7 +407,7 @@ class RequestHandler {
         userid: this.adAccount
       }
     */
-    isDev && console.log('執行使用者目前的頻道指令', json)
+    utils.log('執行使用者目前的頻道指令', json)
     // find online participants' ws to send ACK
     const fws = [...ws.wss.clients].find((client, idx, arr) => {
       return json.userid === client.user.userid
@@ -454,9 +452,9 @@ class RequestHandler {
         command: 'update_user',
         payload: json.info
       })
-      console.log(`傳送系統訊息至 ${targetUserId}`)
+      utils.log(`傳送系統訊息至 ${targetUserId}`)
     } else {
-      console.warn(`${targetUserId} 沒在線上，無法更新快取登入資訊!`, json)
+      utils.warn(`${targetUserId} 沒在線上，無法更新快取登入資訊!`, json)
     }
     return true
   }
@@ -490,7 +488,7 @@ class RequestHandler {
   handleClientRequest (ws, json) {
     if (json.channel === 'chat') {
       // skip message from announcement channel
-      console.log(`收到客戶端送給 ${json.channel} 頻道訊息，略過不處理。`, json)
+      utils.log(`收到客戶端送給 ${json.channel} 頻道訊息，略過不處理。`, json)
       return false
     }
     // insert client sent message to the channel db; expected info: { changes: 1, lastInsertRowid: xx }

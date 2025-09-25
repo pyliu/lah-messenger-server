@@ -3,8 +3,6 @@ const utils = require('./utils.js')
 const MessageDB = require(path.join(__dirname, 'message-db.js'))
 const ChannelDB = require(path.join(__dirname, 'channel-db.js'))
 
-const isDev = process.env.NODE_ENV !== 'production'
-
 class MessageWatcher {
   constructor (wss) {
     // singleton
@@ -78,7 +76,7 @@ class MessageWatcher {
           // })
         }
       } else {
-        isDev && console.log(`無法取得 ${channel} 最新訊息`)
+        utils.log(`無法取得 ${channel} 最新訊息`)
       }
     }
 
