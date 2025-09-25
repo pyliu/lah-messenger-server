@@ -411,18 +411,18 @@ class RequestHandler {
     */
     isDev && console.log('執行使用者目前的頻道指令', json)
     // find online participants' ws to send ACK
-    const ws = [...ws.wss.clients].find((client, idx, arr) => {
+    const fws = [...ws.wss.clients].find((client, idx, arr) => {
       return json.userid === client.user.userid
     })
     let message = `無法找到 ${json.userid} 的 ws ... `
-    if (ws) {
-      ws.user.channel = json.channel
+    if (fws) {
+      fws.user.channel = json.channel
       message = `已更新 ${json.userid} 目前 channel 到 ${ws.user.channel}`
     }
-    utils.sendAck(ws, {
+    utils.sendAck(fws, {
       command: 'update_current_channel',
-      payload: ws.user,
-      success: ws ? true : false,
+      payload: fws.user,
+      success: fws ? true : false,
       message
     }, -11)
 
