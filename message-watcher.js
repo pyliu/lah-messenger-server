@@ -62,7 +62,7 @@ class MessageWatcher {
           })
 
           // find client ws to send message
-          wsClients.filter(ws => ws.user?.userid === channel).forEach(ws => ws.send(packedMessage))
+          wsClients.filter(ws => ws.user?.userid === channel || ws.user?.channel === channel).forEach(ws => ws.send(packedMessage))
 
           // search channel participants and delivery message to them
           // const channelDb = new ChannelDB()
