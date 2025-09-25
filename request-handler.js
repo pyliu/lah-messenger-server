@@ -69,8 +69,12 @@ class RequestHandler {
         return this.executeRemoveMessageCommand(ws, json)
       case 'edit_message':
         return this.executeEditMessageCommand(ws, json)
+      case 'current_channel':
+        return this.executeCurrentChannelCommand(ws, json)
       case 'remove_channel':
         return this.executeRemoveChannelCommand(ws, json)
+      case 'update_current_channel':
+        return this.executeUpdateCurrentChannelCommand(ws, json)
       case 'update_user':
         return this.executeUpdateUserCommand(ws, json)
       default:
@@ -88,6 +92,7 @@ class RequestHandler {
         userid: 'HB0541',
         username: 'WHOAMI',
         dept: 'inf',
+        channel: 'chat'
       }
      */
     const valid = typeof args === 'object'
@@ -134,10 +139,14 @@ class RequestHandler {
     return Boolean(ws.user)
   }
 
+  executeCurrentChannelCommand (ws, json) {
+   isDev && console.log('已收到 current_channel 命令訊息', json)
+  }
+
   executeRemoveChannelCommand (ws, json) {
     // const channel = json.channel
     /*
-      item example: {
+      json example: {
         id: 10,
         name: 'DONTCARE',
         participants: [ '0541', 'HB0542' ],
@@ -390,6 +399,33 @@ class RequestHandler {
     }, -10)
 
     return true
+  }
+
+  executeUpdateCurrentChannelCommand (ws, json) {
+    /*
+      json example: {
+        command: "update_current_channel",
+        channel: channel,
+        userid: this.adAccount
+      }
+    */
+    isDev && console.log('執行使用者目前的頻道指令', json)
+    // find online participants' ws to send ACK
+    const ws = [...ws.wss.clients].find((client, idx, arr) => {
+      return json.userid === client.user.userid
+    })
+    let message = `無法找到 ${json.userid} 的 ws ... `
+    if (ws) {
+      ws.user.channel = json.channel
+      message = `已更新 ${json.userid} 目前 channel 到 ${ws.user.channel}`
+    }
+    utils.sendAck(ws, {
+      command: 'update_current_channel',
+      payload: ws.user,
+      success: ws ? true : false,
+      message
+    }, -11)
+
   }
 
   executeUpdateUserCommand (ws, json) {
