@@ -26,11 +26,41 @@ require('dotenv').config()
 const isDev = process.env.NODE_ENV !== 'production'
 
 const log = function () {
-  isDev && console.log(...arguments)
+  // 檢查是否有傳入參數
+  if (arguments.length === 0) {
+    isDev && console.log();
+    return;
+  }
+  // 檢查第一個參數是否為 true
+  if (arguments[0] === true) {
+    // 如果是 true，則建立一個不包含第一個元素的新陣列
+    // Array.prototype.slice.call(arguments, 1) 會從索引 1 開始切割參數列表
+    const argsToLog = Array.prototype.slice.call(arguments, 1);
+    console.log(...argsToLog);
+  } else {
+    // 如果第一個參數不是 true，則行為保持不變
+    // 只有在 isDev 為 true 時才輸出日誌
+    isDev && console.log(...arguments);
+  }
 }
 
 const warn = function () {
-  isDev && console.warn(...arguments)
+  // 檢查是否有傳入參數
+  if (arguments.length === 0) {
+    isDev && console.warn();
+    return;
+  }
+  // 檢查第一個參數是否為 true
+  if (arguments[0] === true) {
+    // 如果是 true，則建立一個不包含第一個元素的新陣列
+    // Array.prototype.slice.call(arguments, 1) 會從索引 1 開始切割參數列表
+    const argsToLog = Array.prototype.slice.call(arguments, 1);
+    console.warn(...argsToLog);
+  } else {
+    // 如果第一個參數不是 true，則行為保持不變
+    // 只有在 isDev 為 true 時才輸出日誌
+    isDev && console.warn(...arguments);
+  }
 }
 
 const error = function () {
