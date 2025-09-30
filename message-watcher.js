@@ -42,10 +42,12 @@ class MessageWatcher {
       // on create or modify
       const mc = new MessageDB(channel)
       const row = mc.getLatestMessage()
+      utils.log(`偵測到 ${channel} 訊息更新`)
       if (row) {
-        const wsClients = MessageWatcher.getOnlineWsClients(channel)
+        const allClients = [...MessageWatcher.wss.clients]
         if (MessageWatcher.stickyChannels.includes(channel) || channel.startsWith('announcement')) {
-          utils.broadcast(wsClients, row, channel)
+          // const wsClients = MessageWatcher.getOnlineWsClients(channel)
+          utils.broadcast(allClients, row, channel)
         } else {
           // prepare message
           const packedMessage = utils.packMessage(row.content, {
@@ -60,7 +62,15 @@ class MessageWatcher {
           })
 
           // find client ws to send message
-          wsClients.filter(ws => ws.user?.userid === channel || ws.user?.channel === channel).forEach(ws => ws.send(packedMessage))
+          utils.log(`找目前在 ${channel} 頻道的使用者，並發送訊息過去 ... (目前線上使用者 ${allClients.length} 位)`)
+          allClients.filter(
+            ws =>
+              ws.user?.userid === channel ||  // personal message
+              ws.user?.channel === channel  // group message
+          ).forEach(ws => {
+            utils.log(`${ws.user.username} 目前在 ${channel} 頻道，發送訊息給他 ... `)
+            ws.send(packedMessage)
+          })
 
           // search channel participants and delivery message to them
           // const channelDb = new ChannelDB()
