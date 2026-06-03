@@ -416,6 +416,18 @@ class RequestHandler {
     if (fws) {
       fws.user.channel = json.channel
       message = `已更新 ${json.userid} 目前 channel 到 ${ws.user.channel}`
+      // 👇 請加入這段「全域推播頻道異動」的邏輯 👇
+      ws.wss?.clients?.forEach((client) => {
+        // 不要推播給自己，只推給其他人
+        if (client.user?.userid !== json.userid) {
+          utils.sendCommand(client, {
+            command: 'user_channel_changed',
+            payload: fws.user,
+            message: `${fws.user.username} 已切換頻道` // 若不想干擾視覺，這行 message 可設為空字串 ''
+          })
+        }
+      })
+      // 👆 結束加入 👆
     }
     utils.sendAck(fws, {
       command: 'update_current_channel',
