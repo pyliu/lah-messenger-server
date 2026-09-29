@@ -18,73 +18,79 @@ class MessageWatcher {
         'sur', // 測量
         'inf', // 資訊
         'val', // 地價
+        'acc', // 會計
+        'hr', // 人事
         'supervisor', // 主任/秘書
         'lds' // 喇迪賽
       ]
+      MessageWatcher.lastBroadcastIdMap = {}
       // watch db folder for changes
       const nodeWatch = require('node-watch')
       nodeWatch(
         path.join(__dirname, 'db'),
         { recursive: true, filter: /\.db$/ },
-        this.watchHandler
+        this.watchHandler.bind(this)
       )
     }
     return MessageWatcher._instance
   }
 
+  broadcastChannelMessage (channel, row) {
+    if (!row) {
+      const mc = new MessageDB(channel)
+      row = mc.getLatestMessage()
+    }
+    if (!row) {
+      utils.log(`無法取得 ${channel} 最新訊息`)
+      return false
+    }
+
+    const lastId = MessageWatcher.lastBroadcastIdMap[channel] || 0
+    if (row.id && row.id <= lastId) {
+      // 已經廣播過此訊息，略過重複推播
+      return false
+    }
+    if (row.id) {
+      MessageWatcher.lastBroadcastIdMap[channel] = row.id
+    }
+
+    const allClients = [...MessageWatcher.wss.clients]
+    if (MessageWatcher.stickyChannels.includes(channel) || channel.startsWith('announcement')) {
+      utils.broadcast(allClients, row, channel)
+    } else {
+      const packedMessage = utils.packMessage(row.content, {
+        id: row.id,
+        sender: row.sender,
+        date: row.create_datetime.split(' ')[0],
+        time: row.create_datetime.split(' ')[1],
+        from: row.ip,
+        channel,
+        flag: row.flag,
+        remove: row.title
+      })
+
+      utils.log(`找目前在 ${channel} 頻道的使用者，並發送訊息過去 ... (目前線上使用者 ${allClients.length} 位)`)
+      allClients.filter(
+        ws =>
+          ws.user?.userid === channel || // personal message
+          ws.user?.channel === channel // group message
+      ).forEach(ws => {
+        utils.log(`${ws.user?.username} 目前在 ${channel} 頻道，發送訊息給他 ... `)
+        ws.send(packedMessage)
+      })
+    }
+    return true
+  }
+
   watchHandler (evt, name) {
     // evt => 'update' / 'remove', name => 'D:\CODE\lah-messenger-server\db\HAXXXXXXXX.db'
-    // e.g. HA20023698.db
-    // const basename = path.basename(name)
-    // e.g. HA20023698
     const channel = path.basename(name, '.db')
     if (evt === 'update') {
-      // on create or modify
       const mc = new MessageDB(channel)
       const row = mc.getLatestMessage()
-      utils.log(`偵測到 ${channel} 訊息更新`)
+      utils.log(`偵測到 ${channel} 訊息更新 (node-watch)`)
       if (row) {
-        const allClients = [...MessageWatcher.wss.clients]
-        if (MessageWatcher.stickyChannels.includes(channel) || channel.startsWith('announcement')) {
-          // const wsClients = MessageWatcher.getOnlineWsClients(channel)
-          utils.broadcast(allClients, row, channel)
-        } else {
-          // prepare message
-          const packedMessage = utils.packMessage(row.content, {
-            id: row.id,
-            sender: row.sender,
-            date: row.create_datetime.split(' ')[0],
-            time: row.create_datetime.split(' ')[1],
-            from: row.ip,
-            channel,
-            flag: row.flag, // remove PM required
-            remove: row.title // remove PM required
-          })
-
-          // find client ws to send message
-          utils.log(`找目前在 ${channel} 頻道的使用者，並發送訊息過去 ... (目前線上使用者 ${allClients.length} 位)`)
-          allClients.filter(
-            ws =>
-              ws.user?.userid === channel ||  // personal message
-              ws.user?.channel === channel  // group message
-          ).forEach(ws => {
-            utils.log(`${ws.user.username} 目前在 ${channel} 頻道，發送訊息給他 ... `)
-            ws.send(packedMessage)
-          })
-
-          // search channel participants and delivery message to them
-          // const channelDb = new ChannelDB()
-          // const participants = channelDb.getAllParticipantsByChannel(channel)
-          // participants.forEach((participant, idx, arr) => {
-          //   const found = wsClients.find((ws, idx, arr) => {
-          //     if (ws.user) {
-          //       return ws.user.userid === participant.user_id
-          //     }
-          //     return false
-          //   })
-          //   found && found.send(packedMessage)
-          // })
-        }
+        this.broadcastChannelMessage(channel, row)
       } else {
         utils.log(`無法取得 ${channel} 最新訊息`)
       }
@@ -116,6 +122,10 @@ class MessageWatcher {
         return MessageWatcher.filterOnlineClientsByDept('inf')
       case 'val': // 地價
         return MessageWatcher.filterOnlineClientsByDept('val')
+      case 'acc': // 會計
+        return MessageWatcher.filterOnlineClientsByDept('acc')
+      case 'hr': // 人事
+        return MessageWatcher.filterOnlineClientsByDept('hr')
       case 'supervisor': // 主任/秘書
         return MessageWatcher.filterOnlineClientsByDept('supervisor')
       case 'lds': // 喇迪賽

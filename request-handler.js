@@ -522,21 +522,24 @@ class RequestHandler {
     }
     // insert client sent message to the channel db; expected info: { changes: 1, lastInsertRowid: xx }
     const info = utils.insertMessageChannel(json.channel, json)
-    // send ACK back to user to add talk record in own channel when sent private message
-    if (info.changes === 1 && !json.channel?.startsWith('announcement') && !['chat', 'lds', 'inf', 'reg', 'val', 'adm', 'acc', 'hr', 'sur', 'supervisor'].includes(json.channel)) {
-      // successful inserted message to channel
-      // const message = utils.getLatestMessageByChannel(json.channel)
-      utils.sendAck(ws, {
-        command: 'private_message',
-        payload: {
-          ...json,
-          insertedId: info.lastInsertRowid,
-          flag: 1,
-          remove: { to: json.channel, id: info.lastInsertRowid }
-        },
-        success: true,
-        message: `已新增訊息到 ${json.channel} 頻道，該訊息 ID 為 ${info.lastInsertRowid}`
-      }, -99)
+    if (info.changes === 1) {
+      // 主動即時廣播推播至所有符合條件的連線 (零延遲、不依賴 node-watch 檔案監聽)
+      this.watcher?.broadcastChannelMessage(json.channel)
+
+      // send ACK back to user to add talk record in own channel when sent private message
+      if (!json.channel?.startsWith('announcement') && !['chat', 'lds', 'inf', 'reg', 'val', 'adm', 'acc', 'hr', 'sur', 'supervisor'].includes(json.channel)) {
+        utils.sendAck(ws, {
+          command: 'private_message',
+          payload: {
+            ...json,
+            insertedId: info.lastInsertRowid,
+            flag: 1,
+            remove: { to: json.channel, id: info.lastInsertRowid }
+          },
+          success: true,
+          message: `已新增訊息到 ${json.channel} 頻道，該訊息 ID 為 ${info.lastInsertRowid}`
+        }, -99)
+      }
     }
     return true
   }

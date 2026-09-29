@@ -120,43 +120,36 @@ const packMessage = function (payload, opts = {}) {
   return JSON.stringify(args)
 }
 
-let broadcasting = false
 const broadcast = (clients, rowORtext, channel = 'lds') => {
-  const connected = clients.length
-  if (broadcasting === false && connected > 0) {
-    broadcasting = true
-    let processed = 0
-    clients.forEach(function each (client) {
-      if (!client.user) {
-        console.log('沒有使用者資訊，略過廣播此WS頻道 ... ')
-      } else if (client.readyState === WebSocket.OPEN) {
-        // if the input is a array then retrive its id as the message id
-        const messageId = typeof rowORtext === 'string' ? 0 : rowORtext.id
-
-        // channel === 'supervisor' && console.log(rowORtext)
-        const opts = {}
-        if (channel.startsWith('announcement')) {
-          opts.id = rowORtext.id
-        } else {
-          opts.id = rowORtext.id
-          opts.sender = rowORtext.sender
-          opts.date = rowORtext.create_datetime.split(' ')[0]
-          opts.time = rowORtext.create_datetime.split(' ')[1]
-          opts.message = marked.parseInline(marked.parse(rowORtext.content))
-          opts.from = rowORtext.$from_ip
-          opts.channel = channel
-        }
-
-        const json = packMessage(rowORtext, { channel, id: messageId, ...opts })
-        client.send(json)
-      }
-
-      processed++
-      if (processed === connected) {
-        broadcasting = false
-      }
-    })
+  if (!Array.isArray(clients) || clients.length === 0) {
+    return
   }
+  const messageId = typeof rowORtext === 'string' ? 0 : rowORtext.id
+  const opts = {}
+  if (channel.startsWith('announcement')) {
+    opts.id = rowORtext.id
+  } else {
+    opts.id = rowORtext.id
+    opts.sender = rowORtext.sender
+    opts.date = rowORtext.create_datetime.split(' ')[0]
+    opts.time = rowORtext.create_datetime.split(' ')[1]
+    opts.message = marked.parseInline(marked.parse(rowORtext.content))
+    opts.from = rowORtext.$from_ip
+    opts.channel = channel
+  }
+
+  const json = packMessage(rowORtext, { channel, id: messageId, ...opts })
+  clients.forEach(function each (client) {
+    if (!client.user) {
+      // 略過沒有使用者資訊的連線
+    } else if (client.readyState === WebSocket.OPEN) {
+      try {
+        client.send(json)
+      } catch (err) {
+        console.error(`[utils.broadcast] 傳送至 ${client.user?.userid} 失敗:`, err)
+      }
+    }
+  })
 }
 
 const insertMessageChannel = (channel, json) => {
