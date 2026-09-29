@@ -297,19 +297,20 @@ class RequestHandler {
     const sender = json.sender
     const messageDB = new MessageDB(targetChannel)
     const result = messageDB.setMessageRead(targetId, flag)
-    // send ack to the message sender ...
-    const found = [...ws.wss.clients].find((ws) => {
-      return ws.user?.userid === sender
+    // send ack to the message sender's all connected clients ...
+    const senderClients = [...ws.wss.clients].filter((client) => {
+      return client.user?.userid === sender
     })
 
-    // utils.log('準備送出已讀ACK(-8)，接收者', found?.user)
-    utils.sendAck(found, {
-      command: 'set_read',
-      payload: json,
-      success: result !== false,
-      cascade: json.cascade,
-      message: `於 ${targetChannel} 頻道設定 #${targetId} 訊息已讀${result !== false ? '成功' : '失敗'}`
-    }, -8)
+    senderClients.forEach((client) => {
+      utils.sendAck(client, {
+        command: 'set_read',
+        payload: json,
+        success: result !== false,
+        cascade: json.cascade,
+        message: `於 ${targetChannel} 頻道設定 #${targetId} 訊息已讀${result !== false ? '成功' : '失敗'}`
+      }, -8)
+    })
 
     return true
   }
@@ -334,18 +335,19 @@ class RequestHandler {
     const sender = json.sender
     const messageDB = new MessageDB(targetChannel)
     const result = messageDB.isMessageRead(targetId)
-    // send ack to the message sender ...
-    const found = [...ws.wss.clients].find((ws) => {
-      return ws.user?.userid === sender
+    // send ack to the message sender's all connected clients ...
+    const senderClients = [...ws.wss.clients].filter((client) => {
+      return client.user?.userid === sender
     })
 
-    // utils.log('準備送出已讀ACK(-9)，接收者', found?.user)
-    utils.sendAck(found, {
-      command: 'check_read',
-      payload: json,
-      success: result !== false,
-      message: `於 ${senderChannel} 頻道設定 #${senderMessageId} 訊息已讀${result !== false ? '成功' : '失敗'}`
-    }, -9)
+    senderClients.forEach((client) => {
+      utils.sendAck(client, {
+        command: 'check_read',
+        payload: json,
+        success: result !== false,
+        message: `於 ${senderChannel} 頻道設定 #${senderMessageId} 訊息已讀${result !== false ? '成功' : '失敗'}`
+      }, -9)
+    })
 
     if (result !== false) {
       // set sender channel message read
@@ -383,18 +385,17 @@ class RequestHandler {
       // from_ip: json.payload.from_ip || '',
       // flag: json.payload.flag || 0
     })
-    // send ack to the message sender ...
-    const found = [...ws.wss.clients].find((ws) => {
-      return ws.user?.userid === sender
+    // send ack to all connected clients (matching executeRemoveMessageCommand behavior)
+    // so all clients of the sender and viewers in this channel get the updated message
+    const allConnectedWs = [...ws.wss.clients]
+    allConnectedWs.forEach((thisWs) => {
+      utils.sendAck(thisWs, {
+        command: 'edit_message',
+        payload: json,
+        success: result !== false,
+        message: `於 ${senderChannel} 頻道更新 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
+      }, -10)
     })
-
-    // utils.log('準備送出已讀ACK(-10)，接收者', found?.user)
-    utils.sendAck(found, {
-      command: 'edit_message',
-      payload: json,
-      success: result !== false,
-      message: `於 ${senderChannel} 頻道更新 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
-    }, -10)
 
     return true
   }
@@ -408,34 +409,48 @@ class RequestHandler {
       }
     */
     utils.log('執行使用者目前的頻道指令', json)
-    // find online participants' ws to send ACK
-    const fws = [...ws.wss.clients].find((client, idx, arr) => {
-      return json.userid === client.user.userid
+    // find all ws clients of this user
+    const userClients = [...ws.wss.clients].filter((client) => {
+      return client.user?.userid === json.userid
     })
     let message = `無法找到 ${json.userid} 的 ws ... `
-    if (fws) {
-      fws.user.channel = json.channel
-      message = `已更新 ${json.userid} 目前 channel 到 ${ws.user.channel}`
-      // 👇 請加入這段「全域推播頻道異動」的邏輯 👇
+    if (userClients.length > 0) {
+      userClients.forEach((client) => {
+        if (client.user) {
+          client.user.channel = json.channel
+        }
+      })
+      const userPayload = ws.user || userClients[0].user
+      message = `已更新 ${json.userid} 目前 channel 到 ${json.channel}`
+
+      // 全域推播頻道異動給其他人
       ws.wss?.clients?.forEach((client) => {
-        // 不要推播給自己，只推給其他人
         if (client.user?.userid !== json.userid) {
           utils.sendCommand(client, {
             command: 'user_channel_changed',
-            payload: fws.user,
-            message: `${fws.user.username} 已切換頻道` // 若不想干擾視覺，這行 message 可設為空字串 ''
+            payload: userPayload,
+            message: `${userPayload.username} 已切換頻道`
           })
         }
       })
-      // 👆 結束加入 👆
-    }
-    utils.sendAck(fws, {
-      command: 'update_current_channel',
-      payload: { ...fws.user, command: 'update_current_channel' },
-      success: fws ? true : false,
-      message
-    }, -11)
 
+      // 發送 ACK 給該使用者的所有連線
+      userClients.forEach((client) => {
+        utils.sendAck(client, {
+          command: 'update_current_channel',
+          payload: { ...userPayload, command: 'update_current_channel' },
+          success: true,
+          message
+        }, -11)
+      })
+    } else {
+      utils.sendAck(ws, {
+        command: 'update_current_channel',
+        payload: { userid: json.userid, channel: json.channel, command: 'update_current_channel' },
+        success: false,
+        message
+      }, -11)
+    }
   }
 
   executeUpdateUserCommand (ws, json) {
@@ -455,16 +470,18 @@ class RequestHandler {
      */
     // target user id
     const targetUserId = json.id
-    // find online user's ws
-    const found = [...ws.wss.clients].find((ws) => {
-      return ws.user?.userid === targetUserId
+    // find online user's all ws clients
+    const targetClients = [...ws.wss.clients].filter((client) => {
+      return client.user?.userid === targetUserId
     })
-    if (found) {
-      utils.sendCommand(found, {
-        command: 'update_user',
-        payload: json.info
+    if (targetClients.length > 0) {
+      targetClients.forEach((client) => {
+        utils.sendCommand(client, {
+          command: 'update_user',
+          payload: json.info
+        })
       })
-      utils.log(`傳送系統訊息至 ${targetUserId}`)
+      utils.log(`傳送系統訊息至 ${targetUserId} (${targetClients.length} 個連線)`)
     } else {
       utils.warn(`${targetUserId} 沒在線上，無法更新快取登入資訊!`, json)
     }
