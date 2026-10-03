@@ -25,6 +25,9 @@ require('dotenv').config()
 
 const isDev = process.env.NODE_ENV !== 'production'
 
+// 是否允許「未註冊 (沒有 userid/username)」的連線接收推播，僅供本機測試/監看用，預設關閉
+const allowAnonymous = () => String(process.env.WS_ALLOW_ANONYMOUS).toLowerCase() === 'true'
+
 const log = function () {
   // 檢查是否有傳入參數
   if (arguments.length === 0) {
@@ -140,7 +143,7 @@ const broadcast = (clients, rowORtext, channel = 'lds') => {
 
   const json = packMessage(rowORtext, { channel, id: messageId, ...opts })
   clients.forEach(function each (client) {
-    if (!client.user) {
+    if (!client.user && !allowAnonymous()) {
       // 略過沒有使用者資訊的連線
     } else if (client.readyState === WebSocket.OPEN) {
       try {
@@ -213,6 +216,14 @@ const sendAck = function (ws, commandPayload, ackInt = -99) {
   ))
 }
 
+// Ensure a directory exists (recursive)
+const ensureDir = function (dir) {
+  const fs = require('fs')
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+}
+
 module.exports.timestamp = timestamp
 module.exports.packMessage = packMessage
 module.exports.broadcast = broadcast
@@ -227,3 +238,5 @@ module.exports.sendCommand = sendCommand
 module.exports.log = log
 module.exports.warn = warn
 module.exports.error = error
+module.exports.ensureDir = ensureDir
+module.exports.allowAnonymous = allowAnonymous

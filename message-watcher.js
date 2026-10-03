@@ -73,7 +73,8 @@ class MessageWatcher {
       allClients.filter(
         ws =>
           ws.user?.userid === channel || // personal message
-          ws.user?.channel === channel // group message
+          ws.user?.channel === channel || // group message
+          (!ws.user && utils.allowAnonymous()) // 未註冊連線 (本機測試/監看用，需開啟 WS_ALLOW_ANONYMOUS)
       ).forEach(ws => {
         utils.log(`${ws.user?.username} 目前在 ${channel} 頻道，發送訊息給他 ... `)
         ws.send(packedMessage)

@@ -91,3 +91,6 @@ sw.*
 
 # sqlite3 db files
 db
+
+# uploaded attachments
+/uploads

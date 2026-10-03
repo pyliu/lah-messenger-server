@@ -46,9 +46,21 @@ try {
   wss.on('connection', function connection (ws, req) {
     ws.wss = this // reference to the server
     ws.isAlive = true
+    // 開發測試模式 (WS_ALLOW_ANONYMOUS=true)：未註冊前先以固定的 DEV 身份連線，註冊後會被真實身份覆蓋
+    if (utils.allowAnonymous()) {
+      ws.user = {
+        ip: req?.socket?.remoteAddress || '127.0.0.1',
+        domain: 'dev',
+        userid: 'DEV',
+        username: 'DEV',
+        dept: 'inf',
+        channel: 'lds',
+        timestamp: +new Date()
+      }
+    }
     ws.on('pong', function heartbeat () {
       // only ws has user info is treated as alive
-      this.isAlive = typeof this.user === 'object'
+      this.isAlive = typeof this.user === 'object' || utils.allowAnonymous()
     })
 
     ws.on('message', function incoming (message) {
@@ -106,6 +118,23 @@ try {
   })
 
   console.log(`ws伺服器已啟動 (${servicePort})`)
+
+  // 附件上傳/下載 HTTP API (獨立 try/catch，啟動失敗不影響 WebSocket 服務)
+  try {
+    const express = require('express')
+    const uploadRouter = require(path.join(__dirname, 'upload-router.js'))
+    const app = express()
+    app.use('/api', uploadRouter)
+    const httpPort = process.env.HTTP_PORT || 8082
+    const httpServer = app.listen(httpPort, () => {
+      console.log(`HTTP API 已啟動 (${httpPort})`)
+    })
+    httpServer.on('error', (err) => {
+      console.error(`HTTP API 啟動失敗 (${httpPort})`, err)
+    })
+  } catch (httpErr) {
+    console.error('HTTP API 初始化失敗', httpErr)
+  }
 } catch (e) {
   console.error('ws伺服器啟動失敗', e)
 } finally {
