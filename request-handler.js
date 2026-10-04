@@ -187,7 +187,8 @@ class RequestHandler {
           ws.send(utils.packMessage(message, {
             channel,
             id: message.id,
-            prepend: true
+            prepend: true,
+            attachments: utils.listAttachments(channel, message.id)
           }))
         } else {
           ws.send(utils.packMessage(message.content, {
@@ -199,7 +200,8 @@ class RequestHandler {
             channel,
             prepend: true,
             flag: message.flag,
-            remove: message.title
+            remove: message.title,
+            attachments: utils.listAttachments(channel, message.id)
           }))
         }
       })
@@ -239,6 +241,9 @@ class RequestHandler {
     const targetId = parseInt(json.id) || 0
     const messageDB = new MessageDB(targetChannel)
     const result = messageDB.removeMesaage(targetId)
+    if (result !== false) {
+      utils.removeAttachments(targetChannel, targetId)
+    }
     const allConnectedWs = [...ws.wss.clients]
     allConnectedWs.forEach((thisWs) => {
       utils.sendAck(thisWs, {
@@ -501,7 +506,7 @@ class RequestHandler {
     if (messages && messages.length > 0) {
       messages.forEach((message, idx, arr) => {
         if (channel.startsWith('announcement')) {
-          ws.send(utils.packMessage(message, { channel, id: message.id }))
+          ws.send(utils.packMessage(message, { channel, id: message.id, attachments: utils.listAttachments(channel, message.id) }))
         } else {
           ws.send(utils.packMessage(message.content, {
             id: message.id,
@@ -511,7 +516,8 @@ class RequestHandler {
             from: message.ip,
             channel,
             flag: message.flag,
-            remove: message.title
+            remove: message.title,
+            attachments: utils.listAttachments(channel, message.id)
           }))
         }
       })

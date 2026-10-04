@@ -224,8 +224,58 @@ const ensureDir = function (dir) {
   }
 }
 
+// 附件以目錄對應訊息: uploads/<channel>/<message_id>/<timestamp>_<filename>
+const attachmentChannelPattern = /^[A-Za-z0-9_-]{1,64}$/
+const attachmentMessageIdPattern = /^[1-9][0-9]{0,15}$/
+const getAttachmentDir = function (channel, messageId) {
+  const path = require('path')
+  const ch = String(channel)
+  const mid = String(messageId)
+  if (!attachmentChannelPattern.test(ch) || !attachmentMessageIdPattern.test(mid)) {
+    return null
+  }
+  return path.join(__dirname, 'uploads', ch, mid)
+}
+
+// 列出某訊息的附件，目錄不存在或任何錯誤皆回傳空陣列
+const listAttachments = function (channel, messageId) {
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    const dir = getAttachmentDir(channel, messageId)
+    if (!dir || !fs.existsSync(dir)) {
+      return []
+    }
+    return fs.readdirSync(dir)
+      .filter(name => !name.startsWith('.'))
+      .map(name => {
+        const stat = fs.statSync(path.join(dir, name))
+        return { name, size: stat.size }
+      })
+  } catch (err) {
+    warn('listAttachments error', err.message)
+    return []
+  }
+}
+
+// 移除某訊息的所有附件 (刪訊息時呼叫)
+const removeAttachments = function (channel, messageId) {
+  try {
+    const fs = require('fs')
+    const dir = getAttachmentDir(channel, messageId)
+    if (dir && fs.existsSync(dir)) {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  } catch (err) {
+    warn('removeAttachments error', err.message)
+  }
+}
+
 module.exports.timestamp = timestamp
 module.exports.packMessage = packMessage
+module.exports.getAttachmentDir = getAttachmentDir
+module.exports.listAttachments = listAttachments
+module.exports.removeAttachments = removeAttachments
 module.exports.broadcast = broadcast
 module.exports.insertMessageChannel = insertMessageChannel
 module.exports.getLatestMessageByChannel = getLatestMessageByChannel

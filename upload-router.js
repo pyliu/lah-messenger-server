@@ -2,7 +2,10 @@ const express = require('express')
 const multer = require('multer')
 const path = require('path')
 const crypto = require('crypto')
+const fs = require('fs')
 const utils = require('./utils.js')
+const MessageDB = require('./message-db.js')
+const MessageWatcher = require('./message-watcher.js')
 
 const router = express.Router()
 
@@ -29,16 +32,46 @@ const authMiddleware = (req, res, next) => {
 
 router.use(authMiddleware)
 
-// Configure storage – keep files under ./uploads/, sub‑folder per channel
-// NOTE: multipart 的 channel 欄位必須放在 file 欄位之前，否則會使用 general
+// 附件以 message_id 分目錄: uploads/<channel>/<message_id>/<timestamp>_<filename>
+// NOTE: multipart 的 channel、message_id 欄位必須放在 file 欄位之前
+const messageIdPattern = /^[1-9][0-9]{0,15}$/
+const makeError = (message, status) => {
+  const err = new Error(message)
+  err.status = status
+  return err
+}
+// 僅在該頻道 DB 已存在時才檢查訊息是否存在 (避免 MessageDB 建構時自動建立空白 DB)
+const messageExists = (channel, messageId) => {
+  const dbFile = path.join(__dirname, 'db', channel + '.db')
+  if (!fs.existsSync(dbFile)) { return false }
+  let messageDB = null
+  try {
+    messageDB = new MessageDB(channel)
+    return !!messageDB.db.prepare('SELECT id FROM message WHERE id = ?').get(parseInt(messageId))
+  } catch (e) {
+    utils.warn('Check message exists error', e.message)
+    return false
+  } finally {
+    try { messageDB && messageDB.db.close() } catch (e) { /* ignore */ }
+  }
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const channel = req.body.channel || 'general'
     if (!channelPattern.test(channel)) {
-      return cb(new Error('Invalid channel'))
+      return cb(makeError('Invalid channel', 400))
+    }
+    const messageId = String(req.body.message_id || '')
+    if (!messageIdPattern.test(messageId)) {
+      return cb(makeError('Invalid message_id', 400))
+    }
+    if (!messageExists(channel, messageId)) {
+      return cb(makeError('Message not found', 404))
     }
     req.uploadChannel = channel
-    const dir = path.join(uploadRoot, channel)
+    req.uploadMessageId = messageId
+    const dir = path.join(uploadRoot, channel, messageId)
     utils.ensureDir(dir)
     cb(null, dir)
   },
@@ -75,11 +108,45 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({ storage, fileFilter, limits: { fileSize: maxSize } }) // size limit from env
 
-// POST /upload – expects multipart/form-data with fields: channel, file
+// 上傳成功後即時通知相關連線 (ACK -12 / command: attachment_uploaded)
+// 接收對象規則與訊息推播一致: 公共頻道=全體、個人/群組頻道=停留該頻道的連線
+const notifyAttachmentUploaded = (channel, messageId, file) => {
+  try {
+    const wss = MessageWatcher.wss
+    if (!wss) { return }
+    const all = [...wss.clients]
+    const isPublic = MessageWatcher.stickyChannels.includes(channel) || channel.startsWith('announcement')
+    const targets = isPublic
+      ? all
+      : all.filter(ws => ws.user?.userid === channel || ws.user?.channel === channel)
+    const attachments = utils.listAttachments(channel, messageId)
+    targets.forEach(ws => {
+      try {
+        if (ws.readyState === 1) {
+          utils.sendAck(ws, {
+            command: 'attachment_uploaded',
+            payload: { channel, message_id: parseInt(messageId), file, attachments },
+            success: true,
+            message: `${channel} #${messageId} 新增附件 ${file.name}`
+          }, -12)
+        }
+      } catch (err) {
+        utils.warn('notifyAttachmentUploaded send error', err.message)
+      }
+    })
+  } catch (err) {
+    utils.warn('notifyAttachmentUploaded error', err.message)
+  }
+}
+
+// POST /upload – expects multipart/form-data with fields (依序): channel, message_id, file
 router.post('/upload', upload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ status: 0, message: 'File upload failed' })
   }
+  const channel = req.uploadChannel || 'general'
+  const messageId = req.uploadMessageId
+  notifyAttachmentUploaded(channel, messageId, { name: req.file.filename, size: req.file.size })
   res.json({
     status: 1,
     data: {
@@ -87,9 +154,19 @@ router.post('/upload', upload.single('file'), (req, res) => {
       storedName: req.file.filename,
       mime: req.file.mimetype,
       size: req.file.size,
-      channel: req.uploadChannel || 'general'
+      channel,
+      message_id: parseInt(messageId)
     }
   })
+})
+
+// GET /attachments/:channel/:messageId – 列出訊息的附件
+router.get('/attachments/:channel/:messageId', (req, res) => {
+  const { channel, messageId } = req.params
+  if (!channelPattern.test(channel) || !messageIdPattern.test(messageId)) {
+    return res.status(400).json({ status: 0, message: 'Invalid channel or message_id' })
+  }
+  res.json({ status: 1, data: utils.listAttachments(channel, messageId) })
 })
 
 // GET /download/:channel/:filename – streams the file back to the client as an attachment
@@ -112,12 +189,32 @@ router.get('/download/:channel/:filename', (req, res) => {
   })
 })
 
+// GET /download/:channel/:messageId/:filename – 下載指定訊息的附件
+router.get('/download/:channel/:messageId/:filename', (req, res) => {
+  const { channel, messageId, filename } = req.params
+  if (!channelPattern.test(channel) || !messageIdPattern.test(messageId) || !filenamePattern.test(filename)) {
+    return res.status(400).json({ status: 0, message: 'Invalid channel, message_id or filename' })
+  }
+  const filePath = path.join(uploadRoot, channel, messageId, filename)
+  if (!filePath.startsWith(uploadRoot + path.sep)) {
+    return res.status(400).json({ status: 0, message: 'Invalid path' })
+  }
+  res.set('X-Content-Type-Options', 'nosniff')
+  res.download(filePath, filename, { dotfiles: 'deny' }, err => {
+    if (err && !res.headersSent) {
+      utils.warn('File download error', err.message)
+      res.status(404).json({ status: -7, message: 'File not found' })
+    }
+  })
+})
+
 // 上傳錯誤 (檔案類型/大小/channel 不合法等) 統一以 JSON 回應，不外洩錯誤堆疊
 router.use((err, req, res, next) => {
   utils.warn('Upload router error', err && err.message)
   const tooLarge = err && err.code === 'LIMIT_FILE_SIZE'
-  res.status(tooLarge ? 413 : 400).json({
-    status: 0,
+  const notFound = err && err.status === 404
+  res.status(tooLarge ? 413 : notFound ? 404 : 400).json({
+    status: notFound ? -7 : 0,
     message: tooLarge ? 'File too large' : (err && err.message) || 'Bad request'
   })
 })

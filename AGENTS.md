@@ -146,6 +146,48 @@
 - 寫入訊息（`insertMessage`）時應具備忙碌重試機制（Busy Retry）。
 - 嚴禁在未完成 Transaction 或可能造成 Lock 情況下長時間阻塞 Node.js Event Loop。
 
+## 5.3 附件機制（Attachments，不使用資料庫）
+
+附件以**目錄結構**與訊息連結，不新增任何資料庫：
+
+```
+uploads/<channel>/<message_id>/<timestamp>_<safeFilename>
+例：uploads/lds/45/1759548000000_report.pdf
+```
+
+### HTTP API（`upload-router.js`，掛載於 `/api`，預設 `HTTP_PORT=8082`）
+
+| Method / URL | 說明 |
+|--------------|------|
+| `POST /api/upload` | multipart 欄位**依序**為 `channel`、`message_id`、`file`（前兩者必須在 `file` 之前） |
+| `GET /api/attachments/:channel/:messageId` | 列出附件 `[{ name, size }]`（無附件回空陣列） |
+| `GET /api/download/:channel/:messageId/:filename` | 下載該訊息的附件 |
+| `GET /api/download/:channel/:filename` | 舊路徑，僅為相容既有檔案保留 |
+
+- 上傳成功：`{ status: 1, data: { originalName, storedName, mime, size, channel, message_id } }`
+- 失敗：`message_id` 格式不合法/`channel` 不合法 → HTTP 400、`status: 0`；訊息或頻道 DB 不存在 → HTTP 404、`status: -7`；檔案過大 → 413。
+- 伺服器上傳前會驗證 `db/<channel>.db` 內確有該 `message_id`（不會因此建立空白頻道 DB）。
+- 刪除訊息（`remove_message` 成功）時，會一併遞迴刪除 `uploads/<channel>/<message_id>/`。
+
+### WebSocket 推播
+
+- `latest` / `previous` 回傳的 `remote` 封包新增**選用欄位** `attachments: [{ name, size }]`（既有欄位不變，舊前端可忽略）。
+- 上傳成功後即時通知：`type: 'ack'`、`id: '-12'`，`message.command === 'attachment_uploaded'`，
+  `message.payload = { channel, message_id, file: { name, size }, attachments: [...] }`。
+  - 公共頻道（Sticky / `announcement*`）→ 全體連線；個人/群組頻道 → `ws.user.userid === channel` 或 `ws.user.channel === channel` 的所有連線（`filter`，禁止 `.find()`）。
+- ACK ID `-12` 已保留給 `attachment_uploaded`，不可挪作他用。
+
+### 前端（LAH-FE / lah-messenger）注意事項
+
+1. **上傳流程**：先以 WebSocket `mine` 送出文字訊息 → 從**自己那則 `remote` 廣播**取得 `id`（`sender` 與自己相符且內容吻合）；私訊頻道則可由 `private_message` ACK 的 `payload.insertedId` 取得 → 再逐檔 `POST /api/upload`。
+2. **FormData 欄位順序**：`channel`、`message_id` 一定要 `append` 在 `file` 之前，否則 multer 讀不到而回 400。
+3. **一檔一次請求**，一則訊息可多次上傳；以 HTTP 回應的 `status === 1` 判定該檔成功，失敗需提示使用者（400/404/413 的 `message` 可顯示）。
+4. **處理 `attachment_uploaded` ACK（id `-12`）**：依 `payload.channel` + `payload.message_id` 找到畫面上的訊息並以 `payload.attachments` 覆蓋顯示；找不到訊息則忽略。上傳者本人也會收到，需避免重複顯示（以覆蓋而非追加）。
+5. **渲染歷史訊息**：`remote` 封包若有 `attachments` 陣列，逐一顯示下載連結：`/api/download/<channel>/<message_id>/<name>`；顯示名稱可去除 `<timestamp>_` 前綴。
+6. **訊息刪除**：收到 `remove_message` ACK 後連同附件 UI 一併移除（伺服器已刪實體檔）。
+7. **部署**：若有 `UPLOAD_AUTH_TOKEN`，上傳需帶 `x-auth-token` Header；HTTP 與 WS 為不同 Port（`HTTP_PORT` / `WEBSOCKET_PORT`）。
+8. 允許的 MIME 與大小上限由 `FILE_UPLOAD_ALLOWED_MIMES`、`FILE_UPLOAD_MAX_SIZE` 控制，前端應先做檢查以降低失敗率。
+
 ---
 
 # 6. Modification Strategy（修改策略）
