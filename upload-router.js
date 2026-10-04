@@ -30,6 +30,27 @@ const authMiddleware = (req, res, next) => {
   return res.status(401).json({ status: -5, message: 'Unauthorized' })
 }
 
+// 允許跨來源請求 (CORS) 與 Preflight OPTIONS
+const corsMiddleware = (req, res, next) => {
+  const origin = req.headers.origin
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Access-Control-Allow-Credentials', 'true')
+    res.setHeader('Vary', 'Origin')
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Origin, X-Requested-With, Content-Type, Accept, x-auth-token, Authorization')
+  res.setHeader('Access-Control-Max-Age', '86400')
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204)
+  }
+  next()
+}
+
+router.use(corsMiddleware)
 router.use(authMiddleware)
 
 // 附件以 message_id 分目錄: uploads/<channel>/<message_id>/<timestamp>_<filename>
@@ -89,7 +110,14 @@ const defaultMimes = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
   'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
   'application/zip', // .zip
-  'application/x-7z-compressed' // .7z
+  'application/x-7z-compressed', // .7z
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'text/plain',
+  'text/csv',
+  'application/octet-stream'
 ]
 const allowedMimes = process.env.FILE_UPLOAD_ALLOWED_MIMES
   ? process.env.FILE_UPLOAD_ALLOWED_MIMES.split(',').map(v => v.trim())
@@ -99,10 +127,10 @@ const allowedMimes = process.env.FILE_UPLOAD_ALLOWED_MIMES
 const maxSize = parseInt(process.env.FILE_UPLOAD_MAX_SIZE) || 10 * 1024 * 1024
 
 const fileFilter = (req, file, cb) => {
-  if (allowedMimes.includes(file.mimetype)) {
+  if (allowedMimes.includes('*') || allowedMimes.includes(file.mimetype) || !file.mimetype) {
     cb(null, true)
   } else {
-    cb(new Error('Unsupported file type'), false)
+    cb(new Error(`Unsupported file type: ${file.mimetype}`), false)
   }
 }
 

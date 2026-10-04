@@ -124,6 +124,27 @@ try {
     const express = require('express')
     const uploadRouter = require(path.join(__dirname, 'upload-router.js'))
     const app = express()
+
+    // 允許跨來源請求 (CORS) 與 Preflight OPTIONS
+    app.use((req, res, next) => {
+      const origin = req.headers.origin
+      if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin)
+        res.setHeader('Access-Control-Allow-Credentials', 'true')
+        res.setHeader('Vary', 'Origin')
+      } else {
+        res.setHeader('Access-Control-Allow-Origin', '*')
+      }
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Origin, X-Requested-With, Content-Type, Accept, x-auth-token, Authorization')
+      res.setHeader('Access-Control-Max-Age', '86400')
+
+      if (req.method === 'OPTIONS') {
+        return res.sendStatus(204)
+      }
+      next()
+    })
+
     app.use('/api', uploadRouter)
     const httpPort = process.env.HTTP_PORT || 8082
     const httpServer = app.listen(httpPort, () => {
