@@ -10,9 +10,18 @@ const MessageWatcher = require('./message-watcher.js')
 const router = express.Router()
 
 const uploadRoot = path.join(__dirname, 'uploads')
-// channel / filename 只允許安全字元，避免路徑穿越 (../) 與隱藏檔
+// channel / filename 安全檢驗，避免路徑穿越 (../) 與隱藏檔
 const channelPattern = /^[A-Za-z0-9_-]{1,64}$/
-const filenamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/
+// 允許合法中文、英數字、空白、括號、底線與連字號，嚴格禁止路徑穿越與保留字元
+const isSafeFilename = (filename) => {
+  if (!filename || typeof filename !== 'string') { return false }
+  const trimmed = filename.trim()
+  if (trimmed.length === 0 || trimmed.length > 255) { return false }
+  if (trimmed.startsWith('.') || trimmed.includes('..')) { return false }
+  // 禁止 / \ : * ? " < > | 以及 ASCII 控制字元
+  // eslint-disable-next-line no-control-regex
+  return !/[\/\\:\*\?"<>\|\x00-\x1f\x7f]/.test(trimmed)
+}
 
 // Simple token authentication (optional)
 const uploadAuthToken = process.env.UPLOAD_AUTH_TOKEN || ''
@@ -94,12 +103,13 @@ const storage = multer.diskStorage({
     req.uploadMessageId = messageId
     const dir = path.join(uploadRoot, channel, messageId)
     utils.ensureDir(dir)
+    req.uploadDir = dir
     cb(null, dir)
   },
   filename: (req, file, cb) => {
-    const timestamp = Date.now()
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')
-    cb(null, `${timestamp}_${safeName}`)
+    const dir = req.uploadDir || path.join(uploadRoot, req.uploadChannel, req.uploadMessageId)
+    const uniqueName = utils.getUniqueFilename(dir, file.originalname)
+    cb(null, uniqueName)
   }
 })
 
@@ -167,6 +177,36 @@ const notifyAttachmentUploaded = (channel, messageId, file) => {
   }
 }
 
+// 附件刪除後即時通知相關連線 (ACK -13 / command: attachment_deleted)
+const notifyAttachmentDeleted = (channel, messageId, filename) => {
+  try {
+    const wss = MessageWatcher.wss
+    if (!wss) { return }
+    const all = [...wss.clients]
+    const isPublic = MessageWatcher.stickyChannels.includes(channel) || channel.startsWith('announcement')
+    const targets = isPublic
+      ? all
+      : all.filter(ws => ws.user?.userid === channel || ws.user?.channel === channel)
+    const attachments = utils.listAttachments(channel, messageId)
+    targets.forEach(ws => {
+      try {
+        if (ws.readyState === 1) {
+          utils.sendAck(ws, {
+            command: 'attachment_deleted',
+            payload: { channel, message_id: parseInt(messageId), filename, attachments },
+            success: true,
+            message: `${channel} #${messageId} 移除附件 ${filename}`
+          }, -13)
+        }
+      } catch (err) {
+        utils.warn('notifyAttachmentDeleted send error', err.message)
+      }
+    })
+  } catch (err) {
+    utils.warn('notifyAttachmentDeleted error', err.message)
+  }
+}
+
 // POST /upload – expects multipart/form-data with fields (依序): channel, message_id, file
 router.post('/upload', upload.single('file'), (req, res) => {
   if (!req.file) {
@@ -178,7 +218,7 @@ router.post('/upload', upload.single('file'), (req, res) => {
   res.json({
     status: 1,
     data: {
-      originalName: req.file.originalname,
+      originalName: utils.sanitizeFilename(req.file.originalname),
       storedName: req.file.filename,
       mime: req.file.mimetype,
       size: req.file.size,
@@ -197,19 +237,43 @@ router.get('/attachments/:channel/:messageId', (req, res) => {
   res.json({ status: 1, data: utils.listAttachments(channel, messageId) })
 })
 
-// GET /download/:channel/:filename – streams the file back to the client as an attachment
+// DELETE /attachments/:channel/:messageId/:filename – 刪除指定訊息的單一附件
+router.delete('/attachments/:channel/:messageId/:filename', (req, res) => {
+  const { channel, messageId, filename } = req.params
+  if (!channelPattern.test(channel) || !messageIdPattern.test(messageId) || !isSafeFilename(filename)) {
+    return res.status(400).json({ status: 0, message: 'Invalid channel, message_id or filename' })
+  }
+  const deleted = utils.removeAttachmentFile(channel, messageId, filename)
+  if (!deleted) {
+    return res.status(404).json({ status: -7, message: 'Attachment not found' })
+  }
+  notifyAttachmentDeleted(channel, messageId, filename)
+  res.json({
+    status: 1,
+    message: 'Attachment deleted',
+    data: {
+      channel,
+      message_id: parseInt(messageId),
+      filename,
+      attachments: utils.listAttachments(channel, messageId)
+    }
+  })
+})
+
+// GET /download/:channel/:filename – streams the file back to the client as an attachment (歷史相容路徑)
 router.get('/download/:channel/:filename', (req, res) => {
   const { channel, filename } = req.params
-  if (!channelPattern.test(channel) || !filenamePattern.test(filename)) {
+  if (!channelPattern.test(channel) || !isSafeFilename(filename)) {
     return res.status(400).json({ status: 0, message: 'Invalid channel or filename' })
   }
   const filePath = path.join(uploadRoot, channel, filename)
   if (!filePath.startsWith(uploadRoot + path.sep)) {
     return res.status(400).json({ status: 0, message: 'Invalid path' })
   }
+  const downloadName = utils.stripTimestamp(filename)
   // 一律以附件下載並禁止瀏覽器猜測內容類型，避免上傳的 html 等檔案被當網頁執行
   res.set('X-Content-Type-Options', 'nosniff')
-  res.download(filePath, filename, { dotfiles: 'deny' }, err => {
+  res.download(filePath, downloadName, { dotfiles: 'deny' }, err => {
     if (err && !res.headersSent) {
       utils.warn('File download error', err.message)
       res.status(404).json({ status: -7, message: 'File not found' })
@@ -220,15 +284,16 @@ router.get('/download/:channel/:filename', (req, res) => {
 // GET /download/:channel/:messageId/:filename – 下載指定訊息的附件
 router.get('/download/:channel/:messageId/:filename', (req, res) => {
   const { channel, messageId, filename } = req.params
-  if (!channelPattern.test(channel) || !messageIdPattern.test(messageId) || !filenamePattern.test(filename)) {
+  if (!channelPattern.test(channel) || !messageIdPattern.test(messageId) || !isSafeFilename(filename)) {
     return res.status(400).json({ status: 0, message: 'Invalid channel, message_id or filename' })
   }
   const filePath = path.join(uploadRoot, channel, messageId, filename)
   if (!filePath.startsWith(uploadRoot + path.sep)) {
     return res.status(400).json({ status: 0, message: 'Invalid path' })
   }
+  const downloadName = utils.stripTimestamp(filename)
   res.set('X-Content-Type-Options', 'nosniff')
-  res.download(filePath, filename, { dotfiles: 'deny' }, err => {
+  res.download(filePath, downloadName, { dotfiles: 'deny' }, err => {
     if (err && !res.headersSent) {
       utils.warn('File download error', err.message)
       res.status(404).json({ status: -7, message: 'File not found' })

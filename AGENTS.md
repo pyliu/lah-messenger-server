@@ -148,11 +148,12 @@
 
 ## 5.3 附件機制（Attachments，不使用資料庫）
 
-附件以**目錄結構**與訊息連結，不新增任何資料庫：
+附件以**目錄結構**與訊息連結，不新增任何資料庫。儲存時直接使用原始安全檔名（支援中文、空白與括號），不再附加時間戳前綴；若同訊息內重複上傳同名檔案，伺服器自動累加序號（例如 `file (1).pdf`）：
 
 ```
-uploads/<channel>/<message_id>/<timestamp>_<safeFilename>
-例：uploads/lds/45/1759548000000_report.pdf
+uploads/<channel>/<message_id>/<filename>
+例：uploads/lds/45/會議紀錄 (1).pdf
+（相容舊版：uploads/lds/45/1759548000000_report.pdf）
 ```
 
 ### HTTP API（`upload-router.js`，掛載於 `/api`，預設 `HTTP_PORT=8082`）
@@ -161,32 +162,42 @@ uploads/<channel>/<message_id>/<timestamp>_<safeFilename>
 |--------------|------|
 | `POST /api/upload` | multipart 欄位**依序**為 `channel`、`message_id`、`file`（前兩者必須在 `file` 之前） |
 | `GET /api/attachments/:channel/:messageId` | 列出附件 `[{ name, size }]`（無附件回空陣列） |
-| `GET /api/download/:channel/:messageId/:filename` | 下載該訊息的附件 |
-| `GET /api/download/:channel/:filename` | 舊路徑，僅為相容既有檔案保留 |
+| `DELETE /api/attachments/:channel/:messageId/:filename` | 刪除單一附件，若目錄為空則自動清理目錄 |
+| `GET /api/download/:channel/:messageId/:filename` | 下載該訊息的附件（自動過濾歷史時間戳前綴） |
+| `GET /api/download/:channel/:filename` | 舊路徑，僅為相容既有檔案保留（自動過濾歷史時間戳前綴） |
 
 - 上傳成功：`{ status: 1, data: { originalName, storedName, mime, size, channel, message_id } }`
-- 失敗：`message_id` 格式不合法/`channel` 不合法 → HTTP 400、`status: 0`；訊息或頻道 DB 不存在 → HTTP 404、`status: -7`；檔案過大 → 413。
-- 伺服器上傳前會驗證 `db/<channel>.db` 內確有該 `message_id`（不會因此建立空白頻道 DB）。
-- 刪除訊息（`remove_message` 成功）時，會一併遞迴刪除 `uploads/<channel>/<message_id>/`。
+- 單檔刪除成功：`{ status: 1, message: 'Attachment deleted', data: { channel, message_id, filename, attachments: [...] } }`
+- 失敗回應：
+  - `message_id` 格式不合法 / `channel` 不合法 / 檔名含危險路徑字元 → HTTP 400、`status: 0`
+  - 訊息或頻道 DB 不存在 / 檔案不存在 → HTTP 404、`status: -7`
+  - 檔案過大 → HTTP 413、`status: 0`
+- 下載時，伺服器在 `Content-Disposition` 會自動去除歷史檔名的 `<timestamp>_` 前綴，無論新舊檔案，瀏覽器下載時皆為乾淨原始檔名。
+- 刪除訊息（`remove_message` 成功）時，會一併遞迴刪除整則訊息的附件目錄 `uploads/<channel>/<message_id>/`。
 
 ### WebSocket 推播
 
 - `latest` / `previous` 回傳的 `remote` 封包新增**選用欄位** `attachments: [{ name, size }]`（既有欄位不變，舊前端可忽略）。
 - 上傳成功後即時通知：`type: 'ack'`、`id: '-12'`，`message.command === 'attachment_uploaded'`，
   `message.payload = { channel, message_id, file: { name, size }, attachments: [...] }`。
-  - 公共頻道（Sticky / `announcement*`）→ 全體連線；個人/群組頻道 → `ws.user.userid === channel` 或 `ws.user.channel === channel` 的所有連線（`filter`，禁止 `.find()`）。
-- ACK ID `-12` 已保留給 `attachment_uploaded`，不可挪作他用。
+- 單檔刪除後即時通知：`type: 'ack'`、`id: '-13'`，`message.command === 'attachment_deleted'`，
+  `message.payload = { channel, message_id, filename, attachments: [...] }`。
+  - 公共頻道（Sticky / `announcement*`）→ 全體連線廣播。
+  - 個人/群組頻道 → `ws.user.userid === channel` 或 `ws.user.channel === channel` 的所有連線（`filter`，禁止 `.find()`）。
+- ACK ID 保留常數：`-12`（`attachment_uploaded`）、`-13`（`attachment_deleted`）。
 
 ### 前端（LAH-FE / lah-messenger）注意事項
 
 1. **上傳流程**：先以 WebSocket `mine` 送出文字訊息 → 從**自己那則 `remote` 廣播**取得 `id`（`sender` 與自己相符且內容吻合）；私訊頻道則可由 `private_message` ACK 的 `payload.insertedId` 取得 → 再逐檔 `POST /api/upload`。
 2. **FormData 欄位順序**：`channel`、`message_id` 一定要 `append` 在 `file` 之前，否則 multer 讀不到而回 400。
-3. **一檔一次請求**，一則訊息可多次上傳；以 HTTP 回應的 `status === 1` 判定該檔成功，失敗需提示使用者（400/404/413 的 `message` 可顯示）。
-4. **處理 `attachment_uploaded` ACK（id `-12`）**：依 `payload.channel` + `payload.message_id` 找到畫面上的訊息並以 `payload.attachments` 覆蓋顯示；找不到訊息則忽略。上傳者本人也會收到，需避免重複顯示（以覆蓋而非追加）。
-5. **渲染歷史訊息**：`remote` 封包若有 `attachments` 陣列，逐一顯示下載連結：`/api/download/<channel>/<message_id>/<name>`；顯示名稱可去除 `<timestamp>_` 前綴。
-6. **訊息刪除**：收到 `remove_message` ACK 後連同附件 UI 一併移除（伺服器已刪實體檔）。
-7. **部署**：若有 `UPLOAD_AUTH_TOKEN`，上傳需帶 `x-auth-token` Header；HTTP 與 WS 為不同 Port（`HTTP_PORT` / `WEBSOCKET_PORT`）。
-8. 允許的 MIME 與大小上限由 `FILE_UPLOAD_ALLOWED_MIMES`、`FILE_UPLOAD_MAX_SIZE` 控制，前端應先做檢查以降低失敗率。
+3. **一檔一次請求**：一則訊息可多次上傳；以 HTTP 回應的 `status === 1` 判定該檔成功，失敗需提示使用者。
+4. **處理 `attachment_uploaded` ACK（id `-12`）**：依 `payload.channel` + `payload.message_id` 找到畫面上的訊息並以 `payload.attachments` 覆蓋顯示；找不到訊息則忽略。
+5. **處理 `attachment_deleted` ACK（id `-13`）**：依 `payload.channel` + `payload.message_id` 找到畫面上的訊息並以 `payload.attachments` 覆蓋顯示；找不到訊息則忽略。
+6. **下載與檔名**：直接組裝 `/api/download/<channel>/<message_id>/<encodeURIComponent(att.name)>`，伺服器已處理 RFC 5987 UTF-8 編碼與歷史時間戳去除，瀏覽器另存檔案時即為原始正確檔名。
+7. **單檔刪除**：若前端提供單檔刪除按鈕，呼叫 `DELETE /api/attachments/<channel>/<message_id>/<encodeURIComponent(att.name)>`。
+8. **訊息刪除**：收到 `remove_message` ACK 後連同附件 UI 一併移除（伺服器已刪除整份目錄）。
+9. **部署**：若有 `UPLOAD_AUTH_TOKEN`，上傳與刪除需帶 `x-auth-token` Header；HTTP 與 WS 為不同 Port（`HTTP_PORT` / `WEBSOCKET_PORT`）。
+10. 允許的 MIME 與大小上限由 `FILE_UPLOAD_ALLOWED_MIMES`、`FILE_UPLOAD_MAX_SIZE` 控制，前端應先做檢查以降低失敗率。
 
 ---
 

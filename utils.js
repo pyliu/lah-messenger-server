@@ -224,7 +224,7 @@ const ensureDir = function (dir) {
   }
 }
 
-// 附件以目錄對應訊息: uploads/<channel>/<message_id>/<timestamp>_<filename>
+// 附件以目錄對應訊息: uploads/<channel>/<message_id>/<filename>
 const attachmentChannelPattern = /^[A-Za-z0-9_-]{1,64}$/
 const attachmentMessageIdPattern = /^[1-9][0-9]{0,15}$/
 const getAttachmentDir = function (channel, messageId) {
@@ -235,6 +235,49 @@ const getAttachmentDir = function (channel, messageId) {
     return null
   }
   return path.join(__dirname, 'uploads', ch, mid)
+}
+
+// 移除檔名中舊版留存的時間戳前綴 (例: 1791086738695_a.pdf -> a.pdf)
+const stripTimestamp = function (filename) {
+  if (!filename) { return '' }
+  return String(filename).replace(/^\d{10,14}_/, '')
+}
+
+// 修復 Multer 1.4.x 對 UTF-8 檔名以 latin1 解析的問題，並過濾路徑危險字元
+const sanitizeFilename = function (rawName) {
+  if (!rawName) { return 'file' }
+  let decoded = String(rawName)
+  try {
+    const converted = Buffer.from(decoded, 'latin1').toString('utf8')
+    if (!converted.includes('\ufffd')) {
+      decoded = converted
+    }
+  } catch (e) {}
+  // 移除危險路徑字元 \ / : * ? " < > | 以及控制字元
+  // eslint-disable-next-line no-control-regex
+  let safe = decoded.replace(/[\/\\:\*\?"<>\|\x00-\x1f\x7f]/g, '_').trim()
+  // 去除開頭的點，避免成為隱藏檔
+  safe = safe.replace(/^\.+/, '')
+  if (!safe) { safe = 'file' }
+  return safe
+}
+
+// 若目錄下已有同名檔案，自動遞增序號: 檔名 (1).副檔名, 檔名 (2).副檔名
+const getUniqueFilename = function (dir, filename) {
+  const fs = require('fs')
+  const path = require('path')
+  const safeName = sanitizeFilename(filename)
+  const fullPath = path.join(dir, safeName)
+  if (!fs.existsSync(fullPath)) {
+    return safeName
+  }
+  const ext = path.extname(safeName)
+  const base = path.basename(safeName, ext)
+  let count = 1
+  while (fs.existsSync(path.join(dir, `${base} (${count})${ext}`))) {
+    count++
+  }
+  return `${base} (${count})${ext}`
 }
 
 // 列出某訊息的附件，目錄不存在或任何錯誤皆回傳空陣列
@@ -271,11 +314,43 @@ const removeAttachments = function (channel, messageId) {
   }
 }
 
+// 移除單一附件檔案，若目錄為空則一併清理空目錄
+const removeAttachmentFile = function (channel, messageId, filename) {
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    const dir = getAttachmentDir(channel, messageId)
+    if (!dir || !fs.existsSync(dir)) {
+      return false
+    }
+    const filePath = path.join(dir, filename)
+    if (!filePath.startsWith(dir + path.sep)) {
+      return false
+    }
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+      const remaining = fs.readdirSync(dir).filter(name => !name.startsWith('.'))
+      if (remaining.length === 0) {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+      return true
+    }
+    return false
+  } catch (err) {
+    warn('removeAttachmentFile error', err.message)
+    return false
+  }
+}
+
 module.exports.timestamp = timestamp
 module.exports.packMessage = packMessage
 module.exports.getAttachmentDir = getAttachmentDir
+module.exports.stripTimestamp = stripTimestamp
+module.exports.sanitizeFilename = sanitizeFilename
+module.exports.getUniqueFilename = getUniqueFilename
 module.exports.listAttachments = listAttachments
 module.exports.removeAttachments = removeAttachments
+module.exports.removeAttachmentFile = removeAttachmentFile
 module.exports.broadcast = broadcast
 module.exports.insertMessageChannel = insertMessageChannel
 module.exports.getLatestMessageByChannel = getLatestMessageByChannel
