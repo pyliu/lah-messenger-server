@@ -111,6 +111,11 @@ const packMessage = function (payload, opts = {}) {
     },
     ...opts
   }
+  if (args.channel && typeof args.channel === 'string' && args.channel.startsWith('announcement') && typeof args.message === 'object' && args.message !== null) {
+    if (!args.message.attachments) {
+      args.message.attachments = args.attachments || listAttachments(args.channel, args.message.id)
+    }
+  }
   if (typeof args.message === 'string') {
     args.message = trim(marked.parse(args.message, { sanitizer: DOMPurify.sanitize }))
     // markd generated message into <p>....</p>
@@ -131,6 +136,10 @@ const broadcast = (clients, rowORtext, channel = 'lds') => {
   const opts = {}
   if (channel.startsWith('announcement')) {
     opts.id = rowORtext.id
+    opts.attachments = listAttachments(channel, rowORtext.id)
+    if (typeof rowORtext === 'object' && rowORtext !== null) {
+      rowORtext.attachments = opts.attachments
+    }
   } else {
     opts.id = rowORtext.id
     opts.sender = rowORtext.sender
