@@ -168,10 +168,12 @@ uploads/<channel>/<message_id>/<filename>
 
 - 上傳成功：`{ status: 1, data: { originalName, storedName, mime, size, channel, message_id } }`
 - 單檔刪除成功：`{ status: 1, message: 'Attachment deleted', data: { channel, message_id, filename, attachments: [...] } }`
-- 失敗回應：
-  - `message_id` 格式不合法 / `channel` 不合法 / 檔名含危險路徑字元 → HTTP 400、`status: 0`
-  - 訊息或頻道 DB 不存在 / 檔案不存在 → HTTP 404、`status: -7`
-  - 檔案過大 → HTTP 413、`status: 0`
+- 失敗回應（附帶詳細繁體中文原因與結構化 `details` 欄位）：
+  - `message_id` 格式不合法 / `channel` 不合法 / 檔名含危險路徑字元 → HTTP 400、`status: 0`、`details: { code: 'INVALID_PARAM' | 'INVALID_CHANNEL' | 'INVALID_MESSAGE_ID' }`
+  - 訊息或頻道 DB 不存在 / 檔案不存在 → HTTP 404、`status: -7`、`details: { code: 'MESSAGE_NOT_FOUND' | 'ATTACHMENT_NOT_FOUND' }`
+  - 檔案過大 → HTTP 413、`status: 0`、`message: '檔案大小超過限制，單檔上限為 ...'`、`details: { code: 'LIMIT_FILE_SIZE', maxSizeBytes, maxSizeText, field }`
+  - 不支援的檔案類型 → HTTP 400、`status: 0`、`message: '不支援檔案「...」的類型 ...'`、`details: { code: 'UNSUPPORTED_FILE_TYPE', filename, ext, mime, allowedExtensions }`
+  - 未接收到檔案 → HTTP 400、`status: 0`、`details: { code: 'NO_FILE_UPLOADED' }`
 - 下載時，伺服器在 `Content-Disposition` 會自動去除歷史檔名的 `<timestamp>_` 前綴，無論新舊檔案，瀏覽器下載時皆為乾淨原始檔名。
 - 刪除訊息（`remove_message` 成功）時，會一併遞迴刪除整則訊息的附件目錄 `uploads/<channel>/<message_id>/`。
 
@@ -197,7 +199,7 @@ uploads/<channel>/<message_id>/<filename>
 7. **單檔刪除**：若前端提供單檔刪除按鈕，呼叫 `DELETE /api/attachments/<channel>/<message_id>/<encodeURIComponent(att.name)>`。
 8. **訊息刪除**：收到 `remove_message` ACK 後連同附件 UI 一併移除（伺服器已刪除整份目錄）。
 9. **部署**：若有 `UPLOAD_AUTH_TOKEN`，上傳與刪除需帶 `x-auth-token` Header；HTTP 與 WS 為不同 Port（`HTTP_PORT` / `WEBSOCKET_PORT`）。
-10. 允許的 MIME 與大小上限由 `FILE_UPLOAD_ALLOWED_MIMES`、`FILE_UPLOAD_MAX_SIZE` 控制，前端應先做檢查以降低失敗率。
+10. 允許的 MIME 與大小上限由 `FILE_UPLOAD_ALLOWED_MIMES`、`FILE_UPLOAD_ALLOWED_EXTENSIONS`、`FILE_UPLOAD_MAX_SIZE` 控制。採用「雙重檢核機制」（MIME + 副檔名備援），內建涵蓋常見公務檔案（ODF 全系列、MS Office、PDF、RTF、TXT、CSV、XML、DI 公文檔、DWG/DXF 圖資、TIFF 謄本掃描檔、EML/MSG 郵件）及常見壓縮檔（RAR、ZIP、7Z、TAR、GZ）。
 
 ---
 
