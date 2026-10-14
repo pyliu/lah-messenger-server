@@ -119,8 +119,22 @@ const defaultMimes = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
   'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+  'application/msword', // .doc
+  'application/vnd.ms-excel', // .xls
+  'application/vnd.ms-powerpoint', // .ppt
+  'application/vnd.oasis.opendocument.text', // .odt
+  'application/vnd.oasis.opendocument.spreadsheet', // .ods
+  'application/vnd.oasis.opendocument.presentation', // .odp
   'application/zip', // .zip
+  'application/x-zip-compressed', // Windows .zip
+  'application/x-zip', // .zip
+  'multipart/x-zip', // .zip
   'application/x-7z-compressed', // .7z
+  'application/x-rar-compressed', // .rar
+  'application/vnd.rar', // .rar
+  'application/gzip', // .gz
+  'application/x-gzip',
+  'application/x-tar', // .tar
   'image/jpeg',
   'image/png',
   'image/gif',
