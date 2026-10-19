@@ -146,7 +146,10 @@ const broadcast = (clients, rowORtext, channel = 'lds') => {
     opts.date = rowORtext.create_datetime.split(' ')[0]
     opts.time = rowORtext.create_datetime.split(' ')[1]
     opts.message = marked.parseInline(marked.parse(rowORtext.content))
-    opts.from = rowORtext.$from_ip
+    opts.from = rowORtext.from_ip || rowORtext.ip
+    opts.flag = rowORtext.flag
+    opts.remove = rowORtext.title
+    opts.attachments = listAttachments(channel, rowORtext.id)
     opts.channel = channel
   }
 

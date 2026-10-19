@@ -219,6 +219,16 @@ class MessageDB {
     return this.db.prepare('SELECT * FROM message WHERE sender <> \'system\' AND id < ? ORDER BY id DESC LIMIT ?').all(headId, parseInt(count) || 1)
   }
 
+  getMessageById (id) {
+    try {
+      const stmt = this.db.prepare('SELECT * FROM message WHERE id = ?')
+      return stmt.get(parseInt(id) || 0)
+    } catch (error) {
+      utils.error(error)
+    }
+    return undefined
+  }
+
   getUnreadMessageCount (lastReadId) {
     return this.db.prepare('SELECT COUNT(*) FROM message WHERE sender <> \'system\' AND id > ? ORDER BY id DESC').pluck().get(lastReadId || 0)
   }

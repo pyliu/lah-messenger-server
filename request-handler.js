@@ -229,6 +229,31 @@ class RequestHandler {
     return true
   }
 
+  parseCascadeInfo (val) {
+    if (!val) { return null }
+    let parsed = val
+    if (typeof val === 'string') {
+      try {
+        parsed = JSON.parse(val)
+      } catch (e) {
+        return null
+      }
+    }
+    if (parsed && typeof parsed === 'object' && parsed.to && parsed.id) {
+      return {
+        to: String(parsed.to),
+        id: parseInt(parsed.id) || parsed.id
+      }
+    }
+    return null
+  }
+
+  stripReplyHeader (text) {
+    if (!text || typeof text !== 'string') { return text || '' }
+    const regex = /^<h6(\s+.+)*><span(\s+.+)*>.+<\/span>(.*)<\/h6>/i
+    return text.replace(regex, '').replace(/^\n+/, '')
+  }
+
   executeRemoveMessageCommand (ws, json) {
     /** expected json
      {
@@ -240,19 +265,63 @@ class RequestHandler {
     const targetChannel = String(json.channel)
     const targetId = parseInt(json.id) || 0
     const messageDB = new MessageDB(targetChannel)
+    const origMsg = messageDB.getMessageById(targetId)
+    const cascadeInfo = this.parseCascadeInfo(json.cascade) || this.parseCascadeInfo(origMsg?.title)
     const result = messageDB.removeMesaage(targetId)
+    messageDB.close()
     if (result !== false) {
       utils.removeAttachments(targetChannel, targetId)
     }
+    let cascadeRemoved = false
+    if (result !== false && cascadeInfo && cascadeInfo.to && cascadeInfo.id && String(cascadeInfo.to) !== targetChannel) {
+      const cascadeChannel = String(cascadeInfo.to)
+      const cascadeTargetId = parseInt(cascadeInfo.id) || 0
+      if (cascadeTargetId > 0) {
+        const cascadeDB = new MessageDB(cascadeChannel)
+        const cRes = cascadeDB.removeMesaage(cascadeTargetId)
+        cascadeDB.close()
+        if (cRes !== false) {
+          utils.removeAttachments(cascadeChannel, cascadeTargetId)
+          cascadeRemoved = true
+        }
+      }
+    }
     const allConnectedWs = [...ws.wss.clients]
+    const ackPayload = {
+      ...json,
+      id: targetId,
+      cascade: cascadeInfo || '',
+      cascadeHandled: true
+    }
     allConnectedWs.forEach((thisWs) => {
       utils.sendAck(thisWs, {
         command: 'remove_message',
-        payload: json,
+        payload: ackPayload,
+        cascadeHandled: true,
         success: result !== false,
         message: `${targetChannel} 移除 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
       }, -6)
     })
+    if (cascadeRemoved && cascadeInfo) {
+      const cascadeChannel = String(cascadeInfo.to)
+      const cascadeTargetId = parseInt(cascadeInfo.id) || 0
+      const cascadeAckPayload = {
+        command: 'remove_message',
+        channel: cascadeChannel,
+        id: cascadeTargetId,
+        cascade: '',
+        cascadeHandled: true
+      }
+      allConnectedWs.forEach((thisWs) => {
+        utils.sendAck(thisWs, {
+          command: 'remove_message',
+          payload: cascadeAckPayload,
+          cascadeHandled: true,
+          success: true,
+          message: `${cascadeChannel} 連動移除 #${cascadeTargetId} 訊息成功`
+        }, -6)
+      })
+    }
     return true
   }
 
@@ -384,32 +453,127 @@ class RequestHandler {
     const senderChannel = String(json.sender || json.payload?.sender || ws.user?.userid || '')
     const targetChannel = String(json.channel)
     const targetId = parseInt(json.id) || 0
-    const sender = json.sender
     const messageDB = new MessageDB(targetChannel)
-    const hasCascadeObj = json.cascade && typeof json.cascade === 'object' && json.cascade.to && json.cascade.id
-    const fallbackTitle = hasCascadeObj
-      ? JSON.stringify(json.cascade)
-      : (targetChannel.startsWith('announcement') ? '⚠ 標題遺失' : 'dontcare')
+    const origMsg = messageDB.getMessageById(targetId)
+    const cascadeInfo = this.parseCascadeInfo(json.cascade) || this.parseCascadeInfo(origMsg?.title) || this.parseCascadeInfo(json.payload?.title)
+
+    let nextTitle
+    if (cascadeInfo) {
+      nextTitle = JSON.stringify(cascadeInfo)
+    } else if (targetChannel.startsWith('announcement')) {
+      nextTitle = (json.payload?.title && json.payload.title !== '⚠ 標題遺失')
+        ? json.payload.title
+        : (origMsg?.title || '⚠ 標題遺失')
+    } else {
+      nextTitle = (json.payload?.title && json.payload.title !== '⚠ 標題遺失')
+        ? json.payload.title
+        : ((origMsg?.title && origMsg.title !== '⚠ 標題遺失') ? origMsg.title : 'dontcare')
+    }
+
+    const nextPriority = json.payload?.priority === 0
+      ? 0
+      : (cascadeInfo ? 4 : (json.payload?.priority || origMsg?.priority || 3))
+    const rawContent = json.payload?.message || json.payload?.content || '⚠ 內容遺失'
+
     const result = messageDB.updateMessage({
-      id: parseInt(json.id) || 0,
-      title: json.payload.title || fallbackTitle,
-      content: json.payload.message || json.payload.content || '⚠ 內容遺失',
-      priority: json.payload.priority === 0 ? 0 : (json.payload.priority || (hasCascadeObj ? 4 : 3))
+      id: targetId,
+      title: nextTitle,
+      content: rawContent,
+      priority: nextPriority
       // sender: json.sender,
       // from_ip: json.payload.from_ip || '',
       // flag: json.payload.flag || 0
     })
+    messageDB.close()
+
+    let renderedMessage = rawContent
+    if (!targetChannel.startsWith('announcement')) {
+      try {
+        const packed = JSON.parse(utils.packMessage(rawContent, { channel: targetChannel, id: targetId }))
+        renderedMessage = packed.message
+      } catch (e) {}
+    }
+
+    const ackJson = {
+      ...json,
+      id: targetId,
+      sender: senderChannel,
+      cascade: cascadeInfo || '',
+      cascadeHandled: true,
+      payload: {
+        ...(json.payload || {}),
+        id: targetId,
+        channel: targetChannel,
+        title: nextTitle,
+        priority: nextPriority,
+        message: renderedMessage
+      }
+    }
+
     // send ack to all connected clients (matching executeRemoveMessageCommand behavior)
     // so all clients of the sender and viewers in this channel get the updated message
     const allConnectedWs = [...ws.wss.clients]
     allConnectedWs.forEach((thisWs) => {
       utils.sendAck(thisWs, {
         command: 'edit_message',
-        payload: json,
+        payload: ackJson,
+        cascadeHandled: true,
         success: result !== false,
-        message: `於 ${senderChannel} 頻道更新 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
+        message: `於 ${targetChannel} 頻道更新 #${targetId} 訊息${result !== false ? '成功' : '失敗'}`
       }, -10)
     })
+
+    if (result !== false && cascadeInfo && cascadeInfo.to && cascadeInfo.id && String(cascadeInfo.to) !== targetChannel) {
+      const cascadeChannel = String(cascadeInfo.to)
+      const cascadeTargetId = parseInt(cascadeInfo.id) || 0
+      if (cascadeTargetId > 0) {
+        const cleanContent = this.stripReplyHeader(rawContent)
+        const cascadeDB = new MessageDB(cascadeChannel)
+        const cascadeOrig = cascadeDB.getMessageById(cascadeTargetId)
+        const cascadeTitle = (cascadeOrig?.title && cascadeOrig.title !== '⚠ 標題遺失') ? cascadeOrig.title : 'dontcare'
+        const cascadeResult = cascadeDB.updateMessage({
+          id: cascadeTargetId,
+          title: cascadeTitle,
+          content: cleanContent,
+          priority: 3
+        })
+        cascadeDB.close()
+
+        let renderedCascadeMessage = cleanContent
+        try {
+          const packedCascade = JSON.parse(utils.packMessage(cleanContent, { channel: cascadeChannel, id: cascadeTargetId }))
+          renderedCascadeMessage = packedCascade.message
+        } catch (e) {}
+
+        const cascadeAckJson = {
+          command: 'edit_message',
+          channel: cascadeChannel,
+          id: cascadeTargetId,
+          sender: senderChannel,
+          cascade: '',
+          cascadeHandled: true,
+          payload: {
+            ...(json.payload || {}),
+            id: cascadeTargetId,
+            channel: cascadeChannel,
+            sender: senderChannel,
+            title: cascadeTitle,
+            priority: 3,
+            message: renderedCascadeMessage
+          }
+        }
+
+        allConnectedWs.forEach((thisWs) => {
+          utils.sendAck(thisWs, {
+            command: 'edit_message',
+            payload: cascadeAckJson,
+            cascadeHandled: true,
+            success: cascadeResult !== false,
+            message: `於 ${cascadeChannel} 頻道連動更新 #${cascadeTargetId} 訊息${cascadeResult !== false ? '成功' : '失敗'}`
+          }, -10)
+        })
+      }
+    }
 
     return true
   }

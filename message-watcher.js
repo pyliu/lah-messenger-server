@@ -63,10 +63,11 @@ class MessageWatcher {
         sender: row.sender,
         date: row.create_datetime.split(' ')[0],
         time: row.create_datetime.split(' ')[1],
-        from: row.ip,
+        from: row.from_ip || row.ip,
         channel,
         flag: row.flag,
-        remove: row.title
+        remove: row.title,
+        attachments: utils.listAttachments(channel, row.id)
       })
 
       utils.log(`找目前在 ${channel} 頻道的使用者，並發送訊息過去 ... (目前線上使用者 ${allClients.length} 位)`)
