@@ -381,16 +381,20 @@ class RequestHandler {
         cascade: { to: 'HAXXXX', id: xxxx }
       }
      */
-    const senderChannel = String(json.sender)
+    const senderChannel = String(json.sender || json.payload?.sender || ws.user?.userid || '')
     const targetChannel = String(json.channel)
     const targetId = parseInt(json.id) || 0
     const sender = json.sender
     const messageDB = new MessageDB(targetChannel)
+    const hasCascadeObj = json.cascade && typeof json.cascade === 'object' && json.cascade.to && json.cascade.id
+    const fallbackTitle = hasCascadeObj
+      ? JSON.stringify(json.cascade)
+      : (targetChannel.startsWith('announcement') ? '⚠ 標題遺失' : 'dontcare')
     const result = messageDB.updateMessage({
       id: parseInt(json.id) || 0,
-      title: json.payload.title || '⚠ 標題遺失',
+      title: json.payload.title || fallbackTitle,
       content: json.payload.message || json.payload.content || '⚠ 內容遺失',
-      priority: json.payload.priority === 0 ? 0 : (json.payload.priority || 3)
+      priority: json.payload.priority === 0 ? 0 : (json.payload.priority || (hasCascadeObj ? 4 : 3))
       // sender: json.sender,
       // from_ip: json.payload.from_ip || '',
       // flag: json.payload.flag || 0
