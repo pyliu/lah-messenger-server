@@ -1,6 +1,7 @@
 module.exports = {
   apps: [{
     name: 'LAH-WSS',
+    cwd: __dirname,
     exec_mode: 'cluster',
     instances: 1,
     script: './server.js',
