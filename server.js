@@ -125,6 +125,9 @@ try {
     const uploadRouter = require(path.join(__dirname, 'upload-router.js'))
     const app = express()
 
+    // 資安加固：關閉 X-Powered-By 標頭，防止洩漏底層伺服器框架指紋
+    app.disable('x-powered-by')
+
     // 允許跨來源請求 (CORS) 與 Preflight OPTIONS
     app.use((req, res, next) => {
       const origin = req.headers.origin
@@ -146,6 +149,15 @@ try {
     })
 
     app.use('/api', uploadRouter)
+
+    // 資安加固：統一錯誤處理，避免例外堆疊 (Stack Trace) 外洩
+    app.use((err, req, res, next) => {
+      console.error('HTTP 服務未處理例外:', err)
+      if (res.headersSent) {
+        return next(err)
+      }
+      res.status(500).json({ status: false, message: '伺服器內部錯誤' })
+    })
     const httpPort = process.env.HTTP_PORT || 8082
     const httpServer = app.listen(httpPort, () => {
       console.log(`HTTP API 已啟動 (${httpPort})`)
