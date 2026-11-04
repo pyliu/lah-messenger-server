@@ -46,6 +46,9 @@ try {
   wss.on('connection', function connection (ws, req) {
     ws.wss = this // reference to the server
     ws.isAlive = true
+    const clientIp = req?.socket?.remoteAddress || req?.headers['x-forwarded-for'] || '未知IP'
+    ws.clientIp = clientIp
+    ws.connectTime = Date.now()
     // 開發測試模式 (WS_ALLOW_ANONYMOUS=true)：未註冊前先以固定的 DEV 身份連線，註冊後會被真實身份覆蓋
     if (utils.allowAnonymous()) {
       ws.user = {
@@ -91,12 +94,13 @@ try {
           })
         })
       } else {
-        console.warn('WebSocket內沒有使用者資訊')
+        const duration = ws.connectTime ? (' (在線時長: ' + Math.round((Date.now() - ws.connectTime) / 1000) + 's)') : ''
+        console.log('未註冊客戶端 (' + (ws.clientIp || '未知IP') + ') 已斷線' + duration)
       }
-      console.log(`目前已連線客戶數 ${[...wss.clients].length}`)
+      console.log('目前已連線客戶數 ' + [...wss.clients].length)
     })
 
-    console.log(`目前已連線客戶數 ${[...wss.clients].length}`)
+    console.log('新連線建立 (' + clientIp + ')，目前已連線客戶數 ' + [...wss.clients].length)
   })
 
   // remove dead connection every 20s
@@ -104,7 +108,7 @@ try {
     wss.clients.forEach(function each (ws) {
       if (ws.isAlive === false) {
         ws.user && console.log(`偵測到 ${ws.user.dept} / ${ws.user.userid} 的連線已中斷。`)
-        !ws.user && console.log('偵測到無使用者資訊的連線，斷線 ... ')
+        !ws.user && console.log('偵測到無使用者資訊的連線 (' + (ws.clientIp || '未知IP') + ')，斷線 ... ')
         return ws.terminate()
       }
       ws.isAlive = false
