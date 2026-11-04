@@ -17,13 +17,19 @@ class RequestHandler {
   }
 
   handle (ws, incomingRaw) {
-    const incoming = JSON.parse(incomingRaw)
+    let incoming
+    try {
+      incoming = JSON.parse(incomingRaw)
+    } catch (e) {
+      utils.warn('無法解析客戶端 JSON 訊息', incomingRaw)
+      return false
+    }
 
     utils.log('收到客戶端訊息', incoming)
 
-    if (incoming.channel === undefined && incoming.message.channel === undefined) {
+    if (!incoming || (incoming.channel === undefined && incoming.message?.channel === undefined)) {
       utils.warn('沒有頻道資訊，無法處理此訊息', incoming)
-      return
+      return false
     }
 
     if (typeof incoming === 'object' && incoming.type) {
@@ -81,6 +87,42 @@ class RequestHandler {
     return false
   }
 
+  reconcileUserConnections (wss, targetUserId, preferredDept = '', preferredDomain = '') {
+    if (!wss?.clients || !targetUserId) {
+      return
+    }
+    const sameUserClients = [...wss.clients].filter(client => client.user?.userid === targetUserId)
+    if (sameUserClients.length <= 1) {
+      return
+    }
+    // 優先採用桌面端 (domain !== 'tyland') 的有效課室，避免舊版或未登入完成的網頁端 (domain === 'tyland') 預設 fallback 'inf' 汙染課室
+    let authoritativeDept = ''
+    if (preferredDept && (preferredDomain !== 'tyland' || preferredDept !== 'inf')) {
+      authoritativeDept = preferredDept
+    }
+    if (!authoritativeDept) {
+      const desktopClient = sameUserClients.find(c => c.user?.domain !== 'tyland' && c.user?.dept)
+      if (desktopClient) {
+        authoritativeDept = desktopClient.user.dept
+      }
+    }
+    if (!authoritativeDept) {
+      const nonInfClient = sameUserClients.find(c => c.user?.dept && c.user.dept !== 'inf')
+      if (nonInfClient) {
+        authoritativeDept = nonInfClient.user.dept
+      }
+    }
+    if (authoritativeDept) {
+      sameUserClients.forEach((client) => {
+        if (client.user && client.user.dept !== authoritativeDept) {
+          if (client.user.domain === 'tyland' || !client.user.dept || preferredDomain !== 'tyland') {
+            client.user.dept = authoritativeDept
+          }
+        }
+      })
+    }
+  }
+
   executeRegisterCommand (ws, args) {
     /** expected args json format
       {
@@ -100,6 +142,10 @@ class RequestHandler {
     if (valid && utils.allowAnonymous()) {
       !ws.user.userid && (ws.user.userid = 'DEV')
       !ws.user.username && (ws.user.username = 'DEV')
+    }
+
+    if (valid && ws.user?.userid) {
+      this.reconcileUserConnections(ws.wss, ws.user.userid, ws.user.dept, ws.user.domain)
     }
 
     const message = valid ? `遠端客戶端資料 (${ws.user.ip}, ${ws.user.domain}, ${ws.user.userid}, ${ws.user.username}, ${ws.user.dept}) 已儲存於 ws 物件中` : '無法完成 register 命令，因為格式不符'
@@ -329,6 +375,15 @@ class RequestHandler {
     const channel = String(json.channel)
     // assume the channel belongs to chatting room
     const depts = ['adm', 'inf', 'reg', 'sur', 'val', 'acc', 'hr', 'supervisor']
+    // 查詢前先同步同一使用者跨連線 (桌面端與網頁端) 的課室資訊
+    const seenUserIds = new Set()
+    ws.wss?.clients?.forEach((client) => {
+      const uid = client.user?.userid
+      if (uid && !seenUserIds.has(uid)) {
+        seenUserIds.add(uid)
+        this.reconcileUserConnections(ws.wss, uid)
+      }
+    })
     // default get all connected clients
     let filteredClients = [...ws.wss.clients]
     if (depts.includes(channel)) {
@@ -654,11 +709,26 @@ class RequestHandler {
     })
     if (targetClients.length > 0) {
       targetClients.forEach((client) => {
+        if (client.user && json.info) {
+          if (json.info.dept) { client.user.dept = json.info.dept }
+          if (json.info.name) { client.user.username = json.info.name }
+          if (json.info.ip) { client.user.ip = json.info.ip }
+        }
         utils.sendCommand(client, {
           command: 'update_user',
           payload: json.info
         })
       })
+      const updatedUser = targetClients[0].user
+      if (updatedUser) {
+        ws.wss?.clients?.forEach((client) => {
+          utils.sendCommand(client, {
+            command: 'user_connected',
+            payload: updatedUser,
+            message: `${updatedUser.username} 資料已更新`
+          })
+        })
+      }
       utils.log(`傳送系統訊息至 ${targetUserId} (${targetClients.length} 個連線)`)
     } else {
       utils.warn(`${targetUserId} 沒在線上，無法更新快取登入資訊!`, json)
