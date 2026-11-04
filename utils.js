@@ -1,5 +1,5 @@
 const OS = require('os')
-let ip = require('ip').address()
+let ip = '127.0.0.1' // 預設值（無對外 IPv4 時使用），已移除有漏洞的 ip 套件
 // get all ip addresses by node.js os module
 const nets = OS.networkInterfaces()
 for (const name of Object.keys(nets)) {

@@ -16,6 +16,8 @@ try {
   const servicePort = process.env.WEBSOCKET_PORT || 8081
   // initialize WS server
   const WebSocket = require('ws')
+  // log 用：連線數與不重複使用者數 (依 userid 去重) 不同，補充說明避免誤解
+  const onlineUniqueUsersText = (server) => { const ids = new Set(); server.clients.forEach((c) => { if (c.user && c.user.userid) { ids.add(c.user.userid) } }); return `（不重複使用者 ${ids.size}）` }
   const wss = new WebSocket.Server({
     port: servicePort,
     perMessageDeflate: {
@@ -97,10 +99,10 @@ try {
         const duration = ws.connectTime ? (' (在線時長: ' + Math.round((Date.now() - ws.connectTime) / 1000) + 's)') : ''
         console.log('未註冊客戶端 (' + (ws.clientIp || '未知IP') + ') 已斷線' + duration)
       }
-      console.log('目前已連線客戶數 ' + [...wss.clients].length)
+      console.log('目前已連線客戶數 ' + [...wss.clients].length + onlineUniqueUsersText(wss))
     })
 
-    console.log('新連線建立 (' + clientIp + ')，目前已連線客戶數 ' + [...wss.clients].length)
+    console.log('新連線建立 (' + clientIp + ')，目前已連線客戶數 ' + [...wss.clients].length + onlineUniqueUsersText(wss))
   })
 
   // remove dead connection every 20s
