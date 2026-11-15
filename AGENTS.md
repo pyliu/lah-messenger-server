@@ -1,7 +1,8 @@
 # lah-messenger-server — 即時通 WebSocket 伺服器規範
 
 > **系統角色**：地政內部即時通訊 WebSocket 伺服器（`LAH-WSS`），服務桌面端 `lah-messenger`（Tauri 2 + Nuxt 2）、網頁端 `LAH-FE`（`lah-messenger-*.vue`）與外部排程推播。  
-> **技術棧**：Node.js (CommonJS)、原生 `ws` ^7.4.6（預設 Port 8081）、Express ^4（附件 HTTP 預設 Port 8082）、`better-sqlite3`、`multer`、`marked` + `dompurify`。**嚴禁引入 Socket.IO 等重型框架。**
+> **技術棧**：Node.js (CommonJS)、原生 `ws` ^7.4.6（預設 Port 8081）、Express ^4（附件 HTTP 預設 Port 8082）、`better-sqlite3`、`multer`、`marked` + `dompurify`。**嚴禁引入 Socket.IO 等重型框架。**  
+> **記憶指標**：探索或修改前，若 `docs/MEMORY.md` 存在請優先讀取；完成重要 Feature 或踩坑 Bug 修正後，依工作區 `../docs/agents/memory.md` 規範沉澱。
 
 ---
 
