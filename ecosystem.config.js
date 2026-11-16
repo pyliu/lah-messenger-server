@@ -2,7 +2,7 @@ module.exports = {
   apps: [{
     name: 'LAH-WSS',
     cwd: __dirname,
-    exec_mode: 'cluster',
+    exec_mode: 'fork',
     instances: 1,
     script: './server.js',
     args: 'ws',
@@ -16,7 +16,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production'
     },
-    wait_ready: true,
+    wait_ready: false,
     restart_delay: 5000
   }]
 }

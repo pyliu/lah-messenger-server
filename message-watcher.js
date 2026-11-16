@@ -26,13 +26,20 @@ class MessageWatcher {
       MessageWatcher.lastBroadcastIdMap = {}
       // watch db folder for changes
       const nodeWatch = require('node-watch')
-      nodeWatch(
+      this.watcher = nodeWatch(
         path.join(__dirname, 'db'),
         { recursive: true, filter: /\.db$/ },
         this.watchHandler.bind(this)
       )
     }
     return MessageWatcher._instance
+  }
+
+  close () {
+    if (this.watcher && typeof this.watcher.close === 'function') {
+      this.watcher.close()
+      this.watcher = null
+    }
   }
 
   broadcastChannelMessage (channel, row) {

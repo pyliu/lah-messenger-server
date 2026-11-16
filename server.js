@@ -125,6 +125,56 @@ try {
 
   console.log(`ws伺服器已啟動 (${servicePort})`)
 
+  let httpServer = null
+
+  // 確保 PM2 重啟或終止時能釋放 8081/8082 與 SQLite 監看器，避免殘留孤兒行程
+  let isShuttingDown = false
+  const shutdown = (signal, exitCode = 0) => {
+    if (isShuttingDown) {
+      return
+    }
+    isShuttingDown = true
+    console.log(`收到結束訊號 (${signal})，正在關閉 LAH-WSS 服務...`)
+    clearInterval(interval)
+    watcher.close()
+
+    const forceExitTimer = setTimeout(() => {
+      process.exit(exitCode)
+    }, 1000)
+    if (typeof forceExitTimer.unref === 'function') {
+      forceExitTimer.unref()
+    }
+
+    const closeTasks = []
+    wss.clients.forEach((client) => {
+      try {
+        client.terminate()
+      } catch (err) {}
+    })
+    closeTasks.push(new Promise(resolve => wss.close(() => resolve())))
+    if (httpServer && typeof httpServer.close === 'function') {
+      closeTasks.push(new Promise(resolve => httpServer.close(() => resolve())))
+    }
+
+    Promise.all(closeTasks).finally(() => {
+      clearTimeout(forceExitTimer)
+      process.exit(exitCode)
+    })
+  }
+
+  wss.on('error', (err) => {
+    console.error(`ws伺服器發生錯誤 (${servicePort})`, err)
+    shutdown('error', 1)
+  })
+
+  process.on('SIGINT', () => shutdown('SIGINT'))
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('message', (msg) => {
+    if (msg === 'shutdown') {
+      shutdown('shutdown')
+    }
+  })
+
   // 附件上傳/下載 HTTP API (獨立 try/catch，啟動失敗不影響 WebSocket 服務)
   try {
     const express = require('express')
@@ -165,7 +215,7 @@ try {
       res.status(500).json({ status: false, message: '伺服器內部錯誤' })
     })
     const httpPort = process.env.HTTP_PORT || 8082
-    const httpServer = app.listen(httpPort, () => {
+    httpServer = app.listen(httpPort, () => {
       console.log(`HTTP API 已啟動 (${httpPort})`)
     })
     httpServer.on('error', (err) => {
