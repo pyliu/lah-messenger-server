@@ -16,8 +16,9 @@
    - 處理 ACK、`set_read`、`check_read`、訊息編輯、`update_current_channel`、`update_user` 與私訊推播時，**嚴禁使用 `.find()`**，必須一律使用 `.filter(client => client.user?.userid === targetUserId).forEach(...)`。
 3. **嚴禁全域互斥布林鎖（No Blocking Global Locks）**：
    - 禁止在廣播方法中使用 `let broadcasting = false` 等全域鎖；單一連線發送必須以獨立 `try/catch` 隔離，防止單點斷線中斷群發。
-4. **語法必檢**：
+4. **語法與自動化測試**：
    - 修改任何 `.js` 檔案後，**必須執行 `node -c <file_path>`**，確保 PM2 產線重啟不崩潰。
+   - 修改核心邏輯或命令後執行 `npm test`（`node --test tests`）。若本機載入 `better-sqlite3` 出現 `ERR_DLOPEN_FAILED` 而 `package.json` 為 `13+`，代表 `node_modules` 仍殘留舊版 `build/Release/better_sqlite3.node`，應請人工授權執行 `npm install` 切換至 `prebuilds/win32-x64.node`。
 
 ---
 

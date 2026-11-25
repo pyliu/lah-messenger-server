@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test tests"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
