@@ -73,6 +73,8 @@ class RequestHandler {
         return this.executeRemoveMessageCommand(ws, json)
       case 'edit_message':
         return this.executeEditMessageCommand(ws, json)
+      case 'bump_message':
+        return this.executeBumpMessageCommand(ws, json)
       case 'current_channel':
         return this.executeCurrentChannelCommand(ws, json)
       case 'remove_channel':
@@ -368,6 +370,87 @@ class RequestHandler {
         }, -6)
       })
     }
+    return true
+  }
+
+  executeBumpMessageCommand (ws, json) {
+    const targetChannel = String(json.channel || '')
+    const targetId = parseInt(json.id) || 0
+    const operatorId = String(json.sender || ws.user?.userid || '')
+    const allConnectedWs = ws.wss?.clients ? [...ws.wss.clients] : [ws]
+    const operatorClients = operatorId
+      ? allConnectedWs.filter(client => client.user?.userid === operatorId)
+      : []
+    const ackTargets = operatorClients.length > 0 ? operatorClients : [ws]
+
+    const sendBumpAck = (success, message, extraPayload = {}) => {
+      ackTargets.forEach((client) => {
+        utils.sendAck(client, {
+          command: 'bump_message',
+          payload: {
+            command: 'bump_message',
+            channel: targetChannel,
+            id: targetId,
+            ...extraPayload
+          },
+          success,
+          message
+        }, -14)
+      })
+    }
+
+    if (!(targetChannel === 'announcement' || targetChannel.startsWith('announcement_'))) {
+      sendBumpAck(false, '僅公告頻道支援頂起操作')
+      return false
+    }
+    if (targetId <= 0) {
+      sendBumpAck(false, '無效的公告編號')
+      return false
+    }
+
+    const messageDB = new MessageDB(targetChannel)
+    const bumpRes = messageDB.bumpMessage(targetId)
+    if (!bumpRes.ok) {
+      messageDB.close()
+      const errMsg = bumpRes.reason === 'already_latest'
+        ? '此公告已在最前'
+        : (bumpRes.reason === 'not_found' ? `找不到 ${targetChannel} 公告 #${targetId}` : `頂起公告 #${targetId} 失敗`)
+      sendBumpAck(false, errMsg)
+      return false
+    }
+
+    const moveRes = utils.moveAttachments(targetChannel, bumpRes.oldId, bumpRes.newId)
+    if (!moveRes.ok) {
+      messageDB.restoreMessage(bumpRes.orig, bumpRes.newId)
+      messageDB.close()
+      sendBumpAck(false, `搬移公告附件失敗，已取消頂起 #${targetId}`)
+      return false
+    }
+    messageDB.close()
+
+    const removeAckPayload = {
+      command: 'remove_message',
+      channel: targetChannel,
+      id: bumpRes.oldId,
+      cascade: '',
+      cascadeHandled: true
+    }
+    allConnectedWs.forEach((thisWs) => {
+      utils.sendAck(thisWs, {
+        command: 'remove_message',
+        payload: removeAckPayload,
+        cascadeHandled: true,
+        success: true,
+        message: `${targetChannel} 移除 #${bumpRes.oldId} 訊息成功`
+      }, -6)
+    })
+
+    this.watcher?.broadcastChannelMessage(targetChannel, bumpRes.row)
+
+    sendBumpAck(true, `${targetChannel} 公告 #${bumpRes.oldId} 已推至最前 (#${bumpRes.newId})`, {
+      oldId: bumpRes.oldId,
+      newId: bumpRes.newId
+    })
     return true
   }
 

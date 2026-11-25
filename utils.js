@@ -354,6 +354,43 @@ const removeAttachmentFile = function (channel, messageId, filename) {
   }
 }
 
+// 搬移某訊息的附件目錄至新訊息 ID (公告頂起時使用)
+const moveAttachments = function (channel, oldMessageId, newMessageId) {
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    const oldDir = getAttachmentDir(channel, oldMessageId)
+    const newDir = getAttachmentDir(channel, newMessageId)
+    if (!oldDir || !newDir) {
+      return { ok: false, moved: false, error: '無效的頻道或訊息編號' }
+    }
+    if (String(oldMessageId) === String(newMessageId)) {
+      return { ok: true, moved: false }
+    }
+    if (!fs.existsSync(oldDir)) {
+      return { ok: true, moved: false }
+    }
+    ensureDir(path.dirname(newDir))
+    if (fs.existsSync(newDir)) {
+      fs.rmSync(newDir, { recursive: true, force: true })
+    }
+    try {
+      fs.renameSync(oldDir, newDir)
+    } catch (renameErr) {
+      if (renameErr.code === 'EXDEV') {
+        fs.cpSync(oldDir, newDir, { recursive: true })
+        fs.rmSync(oldDir, { recursive: true, force: true })
+      } else {
+        throw renameErr
+      }
+    }
+    return { ok: true, moved: true }
+  } catch (err) {
+    warn('moveAttachments error', err.message)
+    return { ok: false, moved: false, error: err.message }
+  }
+}
+
 module.exports.timestamp = timestamp
 module.exports.packMessage = packMessage
 module.exports.getAttachmentDir = getAttachmentDir
@@ -363,6 +400,7 @@ module.exports.getUniqueFilename = getUniqueFilename
 module.exports.listAttachments = listAttachments
 module.exports.removeAttachments = removeAttachments
 module.exports.removeAttachmentFile = removeAttachmentFile
+module.exports.moveAttachments = moveAttachments
 module.exports.broadcast = broadcast
 module.exports.insertMessageChannel = insertMessageChannel
 module.exports.getLatestMessageByChannel = getLatestMessageByChannel

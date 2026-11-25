@@ -171,6 +171,82 @@ class MessageDB {
     return false
   }
 
+  bumpMessage (id) {
+    try {
+      const targetId = parseInt(id) || 0
+      const orig = this.getMessageById(targetId)
+      if (!orig) {
+        return { ok: false, reason: 'not_found' }
+      }
+      const latest = this.getLatestMessage()
+      if (latest && Number(latest.id) === Number(orig.id)) {
+        return { ok: false, reason: 'already_latest' }
+      }
+      const insertStmt = this.db.prepare(`
+        INSERT INTO message(title, content, priority, create_datetime, expire_datetime, sender, from_ip, flag)
+        VALUES ($title, $content, $priority, $create_datetime, $expire_datetime, $sender, $from_ip, $flag)
+      `)
+      const deleteStmt = this.db.prepare('DELETE FROM message WHERE id = ?')
+      const selectStmt = this.db.prepare('SELECT * FROM message WHERE id = ?')
+      const tx = this.db.transaction((row) => {
+        const info = insertStmt.run({
+          title: row.title ?? '',
+          content: row.content ?? '',
+          priority: row.priority ?? 3,
+          create_datetime: row.create_datetime,
+          expire_datetime: row.expire_datetime ?? '',
+          sender: row.sender,
+          from_ip: row.from_ip ?? '',
+          flag: row.flag ?? 0
+        })
+        deleteStmt.run(row.id)
+        const newId = Number(info.lastInsertRowid)
+        const newRow = selectStmt.get(newId)
+        return { oldId: row.id, newId, row: newRow }
+      })
+      const res = tx(orig)
+      isDev && console.log(`頂起 ${this.channel} 訊息 #${res.oldId} -> #${res.newId} 成功`)
+      return { ok: true, oldId: res.oldId, newId: res.newId, orig, row: res.row }
+    } catch (e) {
+      console.error(`頂起 ${this.channel} 訊息 ${id} 失敗`, e)
+      return { ok: false, reason: 'db_error', error: e.message }
+    }
+  }
+
+  restoreMessage (orig, newId = 0) {
+    try {
+      if (!orig || !orig.id) {
+        return false
+      }
+      const deleteStmt = this.db.prepare('DELETE FROM message WHERE id = ?')
+      const restoreStmt = this.db.prepare(`
+        INSERT INTO message(id, title, content, priority, create_datetime, expire_datetime, sender, from_ip, flag)
+        VALUES ($id, $title, $content, $priority, $create_datetime, $expire_datetime, $sender, $from_ip, $flag)
+      `)
+      const tx = this.db.transaction(() => {
+        if (newId > 0) {
+          deleteStmt.run(newId)
+        }
+        restoreStmt.run({
+          id: orig.id,
+          title: orig.title ?? '',
+          content: orig.content ?? '',
+          priority: orig.priority ?? 3,
+          create_datetime: orig.create_datetime,
+          expire_datetime: orig.expire_datetime ?? '',
+          sender: orig.sender,
+          from_ip: orig.from_ip ?? '',
+          flag: orig.flag ?? 0
+        })
+      })
+      tx()
+      return true
+    } catch (e) {
+      console.error(`回滾 ${this.channel} 訊息 #${orig?.id} 失敗`, e)
+      return false
+    }
+  }
+
   setMessageRead (id, currentFlag) {
     try {
       // current flag definition is 1 => private message, 2 => message read
